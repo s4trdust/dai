@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Re:Source{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
+<body>
+<header><div class="wrap">
+  <div class="brand"><div class="logo">♻</div><div><b>Re:Source</b><small>THE SMART MATERIAL LIBRARY</small></div></div>
+  <nav>{% for ep,label in [('dashboard','Dashboard'),('items','Library'),('ai_matcher','AI Matcher'),('scan','Checkout'),('guide','Guide')] %}
+    <a href="{{ url_for(ep) }}" class="{{ 'on' if request.endpoint==ep }}">{{ label }}</a>{% endfor %}</nav>
+  <h1>Give materials a second life.</h1><p>Discover, reuse and share materials from your school scrapyard.</p>
+</div></header>
+<main><div class="wrap">{% block content %}{% endblock %}</div></main>
+<footer><div class="wrap"><b>Re:Source</b><br><small>Reuse more. Waste less. Create better.<br>A smarter, more sustainable school scrapyard.</small></div></footer>
+</body></html>

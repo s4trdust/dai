@@ -1,0 +1,18 @@
+{% extends 'base.html' %}{% block content %}
+<div class="card"><span class="badge {{ item.status }}">{{ 'To be recycled' if item.status=='recycle' else 'In stock' }}</span>
+<h2>{{ item.name }}</h2><div class="meta">{{ item.material }} · {{ item.category_label }} item</div>
+<div class="grid"><div><small>Quantity</small>{{ item.quantity }}</div><div><small>Size</small>{{ item.size }}</div>
+<div><small>Location</small>📍 {{ item.location }}</div><div><small>Days until recycling</small>{{ [item.days_left,0]|max }}</div></div>
+<p><small class="meta">Suggested uses</small><br>{{ item.use }}</p>
+{% if item.photo %}<p class="noprint"><img src="{{ url_for('static', filename=item.photo) }}" alt="Scan photo" style="max-width:100%;border-radius:12px"></p>
+<div class="grid noprint"><div><small>Weight</small>{{ item.weight_g }} g</div><div><small>Colour</small>{{ item.colour or '–' }}</div>
+<div><small>Condition</small>{{ (item.condition or '–')|replace('_', ' ') }}</div><div><small>Transparency</small>{{ item.transparency or '–' }}</div></div>
+<p class="noprint"><small class="meta">Scanner notes</small><br>{{ item.description }}</p>{% endif %}
+{% if item.labelled %}<div class="label"><img src="{{ url_for('static', filename='qr/%d.png'|format(item.id)) }}" alt="QR label"><br><b>Item code: {{ item.id }}</b></div>
+<p class="noprint"><button class="primary" onclick="print()">Print label</button> <a class="btn" href="{{ url_for('items') }}">Back to library</a></p>
+<p class="note noprint">Paste this label on the item. Scan it in the QR Scanner before taking the item.</p>
+{% else %}<form class="row noprint" method="post" action="{{ url_for('take', item_id=item.id) }}">
+  <input name="quantity" type="number" min="1" max="{{ item.quantity }}" value="1" aria-label="How many">
+  <button class="primary">Take</button><a class="btn" href="{{ url_for('items') }}">Back to library</a></form>
+<p class="note">Small scraps are counted, not labelled. Use Take (or the Checkout page) when you remove some.</p>{% endif %}</div>
+{% endblock %}

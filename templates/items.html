@@ -1,0 +1,12 @@
+{% extends 'base.html' %}{% block content %}
+<h2>Material Library</h2><p class="sub">Find available materials for your next project.</p>
+<form class="search" method="get"><input name="q" value="{{ q }}" placeholder="Search acrylic, wood, electronics…">
+<input type="hidden" name="category" value="{{ category }}">{% if expiring %}<input type="hidden" name="expiring" value="1">{% endif %}<button class="primary">Search</button></form>
+<div class="meta" style="margin-top:12px">FILTER BY CATEGORY</div>
+<div class="chips">
+  <a href="{{ url_for('items', q=q) }}" class="{{ 'on' if category=='all' }}">All</a>
+  {% for k,v in categories.items() %}<a href="{{ url_for('items', q=q, category=k) }}" class="{{ 'on' if category==k }}">{{ v }}</a>{% endfor %}
+  <a href="{{ url_for('items', q=q, category=category, expiring=1) }}" class="{{ 'on' if expiring }}">Expiring soon</a></div>
+<p class="meta"><b>Available materials</b> · {{ items|length }} results</p>
+{% for i in items %}{% include '_card.html' %}{% else %}<p class="meta">No materials match.</p>{% endfor %}
+{% endblock %}

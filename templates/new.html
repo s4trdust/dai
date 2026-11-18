@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% block content %}
+<h2>Register a material</h2><p class="sub">Large and unique items get their own QR label. Small scraps are just added to the count for their category.</p>
+{% if deposited %}<div class="card" style="background:var(--tint)" role="status">✅ <b>Deposited.</b>
+  {{ deposited.added }} × {{ deposited.name }} added. Place {{ 'it' if deposited.added == 1 else 'them' }} in <b>📍 {{ deposited.location }}</b>.
+  <div class="meta">{{ deposited.total }} now in stock · <a href="{{ url_for('item', item_id=deposited.id) }}">view</a></div></div>{% endif %}
+<form method="post" class="card">
+<label>Type</label><select name="category">{% for k,v in categories.items() %}<option value="{{ k }}">{{ v }}{{ {'small':' / scraps, counted only','large':' / awkward, gets a QR label','unique':' / important, gets a QR label'}[k] }}</option>{% endfor %}</select>
+<label>Material</label><input name="material" required placeholder="Acrylic, Cardboard, Wire, PLA, Wood…" list="m">
+<datalist id="m">{% for m in defaults %}<option value="{{ m|capitalize }}">{% endfor %}</datalist>
+<label>Name <span class="note">(not needed for small scraps)</span></label><input name="name" placeholder="e.g. Arduino Uno">
+<div class="row"><div><label>Size</label><input name="size" placeholder="e.g. 100 x 80 cm"></div><div><label>Quantity</label><input name="quantity" type="number" min="1" value="1"></div></div>
+<label>Storage location <span class="note">(small acrylic, cardboard, wire and PLA go to their section automatically)</span></label><input name="location" placeholder="e.g. Shelf C01">
+<label>Suggested uses</label><textarea name="use" placeholder="Used for…"></textarea>
+<label>Days before "to be recycled" <span class="note">(blank = default for the material)</span></label><input name="days" type="number" min="1">
+<p><button class="primary">Register</button></p></form>
+{% endblock %}

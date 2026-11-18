@@ -1,0 +1,8 @@
+{% extends 'base.html' %}{% block content %}
+<h2>What are you building?</h2><p class="sub">Describe your project and Re:Source AI will help you find suitable existing materials.</p>
+<form method="post"><label for="t">Describe your project requirements</label>
+<textarea id="t" name="text" required placeholder="e.g. I am building a miniature bridge and need lightweight, sturdy materials…">{{ text }}</textarea>
+<p><button class="primary">✨ Find matching materials</button></p></form>
+{% if reply %}<div class="reply">{{ reply }}</div>
+{% if not ai %}<p class="note">AI is unavailable (set GEMINI_API_KEY), so this is a simple keyword match.</p>{% endif %}{% endif %}
+{% endblock %}

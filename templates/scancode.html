@@ -1,0 +1,22 @@
+{% extends 'base.html' %}{% block content %}
+<h2>Checkout</h2><p class="sub">Taking materials from the scrapyard? Check them out here so the library stays up to date.</p>
+{% if taken %}<p class="note ok" role="status">✅ {{ taken }}</p>{% endif %}
+
+<h3>Large &amp; unique items</h3><p class="meta">Scan the item's QR label, check the details, then confirm.</p>
+<div id="reader"></div>
+<p><button id="toggle" class="primary">Start camera</button></p>
+<label for="code">Or enter an item code</label>
+<div class="row"><input id="code" inputmode="numeric" placeholder="Enter item ID or QR code"><button id="lookup" style="flex:0">Look up</button></div>
+<p id="status" class="note" role="status"></p><div id="result"></div>
+<p class="note">The camera needs HTTPS (or localhost).</p>
+
+<h3 style="margin-top:24px">Small scraps</h3><p class="meta">Small scraps have no label: choose what you took and how many.</p>
+{% for i in small %}<form class="card row" method="post" action="{{ url_for('take', item_id=i.id) }}">
+  <div style="flex:3"><b>{{ i.name }}</b><div class="meta">📍 {{ i.location }} · {{ i.quantity }} in stock</div></div>
+  <input name="quantity" type="number" min="1" max="{{ i.quantity }}" value="1" aria-label="How many">
+  <button class="primary">Take</button></form>
+{% else %}<p class="meta">No small scraps in stock.</p>{% endfor %}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="{{ url_for('static', filename='scanning.js') }}"></script>
+{% endblock %}

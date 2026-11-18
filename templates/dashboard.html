@@ -1,0 +1,13 @@
+{% extends 'base.html' %}{% block content %}
+<h2>Dashboard</h2><p class="sub">Scrapyard overview.</p>
+<div class="stats"><div class="stat"><b>{{ stats.total }}</b><span>Items tracked</span></div>
+<div class="stat"><b>{{ stats.small }}</b><span>Small</span></div><div class="stat"><b>{{ stats.large }}</b><span>Large</span></div>
+<div class="stat"><b>{{ stats.unique }}</b><span>Unique</span></div></div>
+<p><a class="btn primary" href="{{ url_for('new') }}">+ Register material</a></p>
+<h2>To be recycled <span class="meta">(staff alert)</span></h2>
+{% for i in recycle %}<div class="card"><b>{{ i.name }}</b> · {{ i.material }} · {{ i.location }}
+  <form method="post" action="{{ url_for('recycle', item_id=i.id) }}" style="margin-top:8px"><button>Mark as recycled</button></form></div>
+{% else %}<p class="meta">Nothing has expired.</p>{% endfor %}
+<h2 style="margin-top:20px">Expiring soon</h2>
+{% for i in soon %}{% include '_card.html' %}{% else %}<p class="meta">Nothing expiring in the next 7 days.</p>{% endfor %}
+{% endblock %}

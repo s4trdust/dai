@@ -26,6 +26,8 @@ def init_db():
     for col, kind in extra.items():
         if col not in cols:
             con.execute(f'ALTER TABLE items ADD COLUMN {col} {kind}')
+    # small scraps are only counted, so they have no size (older versions stored e.g. "Under 8 cm")
+    con.execute("UPDATE items SET size = '' WHERE category = 'small' AND size != ''")
     con.commit(); con.close()
 
 def seed():
@@ -33,8 +35,8 @@ def seed():
     rows = [
         ('Arduino Uno', 'unique', 'Standard', 'Electronics', 180, 'Shelf C01', 'Electronics, robotics', 2),
         ('Servo Motor', 'unique', 'Standard', 'Electronics', 180, 'Shelf C02', 'Robotics, mechanisms', 3),
-        ('Acrylic offcuts', 'small', 'Under 8 cm', 'Acrylic', 90, 'Section 1', 'Signs, window panels, models', 12),
-        ('Cardboard', 'small', 'Under 8 cm', 'Cardboard', 30, 'Section 2', 'Prototyping, bridges, packaging', 20),
+        ('Acrylic offcuts', 'small', '', 'Acrylic', 90, 'Section 1', 'Signs, window panels, models', 12),
+        ('Cardboard', 'small', '', 'Cardboard', 30, 'Section 2', 'Prototyping, bridges, packaging', 20),
         ('Heavy plywood sheet', 'large', '100 x 80 cm', 'Wood', 60, 'Rack B1', 'Bases, frames', 1),
         ('Large cardboard panel', 'large', '120 x 90 cm', 'Cardboard', 30, 'Rack B2', 'Large models, backdrops', 2),
     ]

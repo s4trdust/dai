@@ -2,7 +2,10 @@
 <h2>Register a material</h2><p class="sub">Large and unique items get their own QR label. Small scraps are just added to the count for their category.</p>
 {% if deposited %}<div class="card" style="background:var(--tint)" role="status">✅ <b>Deposited.</b>
   {{ deposited.added }} × {{ deposited.name }} added. Place {{ 'it' if deposited.added == 1 else 'them' }} in <b>📍 {{ deposited.location }}</b>.
-  <div class="meta">{{ deposited.total }} now in stock · <a href="{{ url_for('item', item_id=deposited.id) }}">view</a></div></div>{% endif %}
+  <div class="meta">{{ deposited.total }} now in stock · <a href="{{ url_for('item', item_id=deposited.id) }}">view</a></div>
+  {% if deposited.flap_error %}<p class="note err">⚠️ {{ deposited.flap_error }}</p>
+  {% elif deposited.section %}<div class="meta">↪️ Funnel turned to section {{ deposited.section }}.</div>
+  {% else %}<div class="meta">✋ No box for this one: the funnel did not move, so take it off the scale by hand.</div>{% endif %}</div>{% endif %}
 <form method="post" class="card" enctype="multipart/form-data" id="register">
 <div id="ai-step">
   <label for="weight">Weight in grams <span class="note">(optional{% if ai_ready %}, helps the AI tell materials apart{% endif %})</span></label>
@@ -13,21 +16,24 @@
   <input id="photo" name="photo" type="file" accept="image/*">
   <img id="preview" alt="Photo of the item" hidden style="display:block;max-width:100%;max-height:360px;border-radius:12px;margin:8px 0">
   <p id="preview-note" class="note" hidden>This photo is saved on the item's page (large and unique items).</p>
-  {% if ai_ready %}<p class="row"><button type="button" class="btn" id="identify">Identify with AI</button>
-     <button type="button" class="btn" id="manual">Fill in by hand instead</button></p>
+  {% if ai_ready %}<p class="note">The AI identifies the item as soon as you choose a photo.</p>
   {% else %}<p class="note">AI identification is off (no GEMINI_API_KEY set), so fill in the details by hand.</p>{% endif %}
   <p id="ai-status" class="note" role="status"></p>
+  {% if ai_ready %}<p><button type="button" class="btn small" id="manual">Fill in by hand instead</button></p>{% endif %}
 </div>
 <div id="details"{% if ai_ready %} hidden{% endif %}>
 <label>Type</label><select name="category">{% for k,v in categories.items() %}<option value="{{ k }}">{{ v }}{{ {'small':' / scraps, counted only','large':' / awkward, gets a QR label','unique':' / important, gets a QR label'}[k] }}</option>{% endfor %}</select>
 <label>Material</label><input name="material" required placeholder="Acrylic, Cardboard, Wire, PLA, Wood…" list="m">
 <datalist id="m">{% for m in defaults %}<option value="{{ m|capitalize }}">{% endfor %}</datalist>
 <label>Name <span class="note">(not needed for small scraps)</span></label><input name="name" placeholder="e.g. Arduino Uno">
-<div class="row"><div><label>Size</label><input name="size" placeholder="e.g. 100 x 80 cm"></div><div><label>Quantity</label><input name="quantity" type="number" min="1" value="1"></div></div>
+<div class="row"><div id="size-box"><label>Size</label><input name="size" placeholder="e.g. 100 x 80 cm"></div><div><label>Quantity</label><input name="quantity" type="number" min="1" value="1"></div></div>
 <label>Storage location <span class="note">(small acrylic, cardboard, wire and PLA go to their section automatically)</span></label><input name="location" placeholder="e.g. Shelf C01">
 <label>Suggested uses</label><textarea name="use" placeholder="Used for…"></textarea>
 <label>Days before "to be recycled" <span class="note">(blank = default for the material)</span></label><input name="days" type="number" min="1">
 {% for f in ['colour', 'condition', 'transparency', 'description'] %}<input type="hidden" name="{{ f }}">{% endfor %}
+<div id="verify" class="card" hidden style="background:#fff1cc;border-color:#e8c766;margin-top:12px">
+  <label style="display:flex;gap:10px;align-items:flex-start;margin:0"><input type="checkbox" id="verify-ok" style="width:auto;margin-top:4px">
+  <span>⚠️ The AI is only <b id="verify-pct"></b> sure. I've checked the details above and they are right.</span></label></div>
 <p><button class="primary">Register</button></p></div></form>
 <script>const AI_READY = {{ 'true' if ai_ready else 'false' }};</script>
 <script src="{{ url_for('static', filename='register.js') }}"></script>

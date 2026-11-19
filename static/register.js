@@ -13,11 +13,29 @@ function fill(r) {
   for (const k of ['category', 'material', 'name', 'size', 'use', 'location',
                    'colour', 'condition', 'transparency', 'description']) field(k).value = r[k] || '';
   const pct = Math.round(r.confidence * 100);
+  const check = Boolean(r.material && r.verify);    // under 95% sure: must tick the box to register
   status(r.material
     ? `AI thinks: ${r.name} (${r.material}, ${pct}% sure). ` +
-      (r.unsure ? 'It is not sure. Please check the material.' : 'Check the details below, then press Register.')
+      (r.unsure ? 'It is not sure. Please check the material.'
+       : check ? 'Please check the details below, tick the box, then press Register.'
+       : 'Check the details below, then press Register.')
     : 'The AI could not tell the material. Please fill it in.', r.unsure || !r.material);
+  setVerify(check, pct);
   showDetails();
+  sizeBox();
+}
+
+// Small scraps are only counted, so their size is not asked for (or saved).
+function sizeBox() { $('size-box').hidden = field('category').value === 'small'; }
+field('category').addEventListener('change', sizeBox);
+sizeBox();
+
+// The "I've checked it" box: shown (and required) only when the AI is not sure enough.
+function setVerify(on, pct) {
+  $('verify').hidden = !on;
+  $('verify-ok').required = on;
+  $('verify-ok').checked = false;
+  if (on) $('verify-pct').textContent = pct + '%';
 }
 
 // Show the uploaded photo.
@@ -31,28 +49,30 @@ function showPreview(file) {
 $('photo').onchange = () => {                      // preview, then start the AI straight away
   if (!$('photo').files.length) return;
   showPreview($('photo').files[0]);
-  if (AI_READY) $('identify').click();
+  if (AI_READY) identify();
 };
 
-if (AI_READY) {
-  $('manual').onclick = () => { showDetails(); field('material').focus(); };
-
-  $('identify').onclick = async () => {
-    if (!$('photo').files.length) return status('Choose or take a photo first.', true);
-    const body = new FormData();
-    body.append('photo', $('photo').files[0]);
-    if ($('weight').value) body.append('weight_g', $('weight').value);
-    $('identify').disabled = true;
-    status('Identifying… (up to about 30 seconds)');
-    try {
-      const r = await (await fetch('/api/identify', { method: 'POST', body })).json();
-      if (!r.ok) { status(r.error, true); return showDetails(); }
-      fill(r);
-    } catch (e) {
-      status('Could not reach the server. Fill in the details by hand.', true); showDetails();
-    } finally { $('identify').disabled = false; }
-  };
+// Send the photo (and weight, if filled in) to the AI. Runs when a photo is chosen.
+let identifying = 0;                               // ignore answers for an earlier photo
+async function identify() {
+  const mine = ++identifying;
+  const body = new FormData();
+  body.append('photo', $('photo').files[0]);
+  if ($('weight').value) body.append('weight_g', $('weight').value);
+  status('Identifying… (up to about 30 seconds)');
+  setVerify(false);                                 // a new photo gets a new answer
+  try {
+    const r = await (await fetch('/api/identify', { method: 'POST', body })).json();
+    if (mine !== identifying) return;
+    if (!r.ok) { status(r.error, true); return showDetails(); }
+    fill(r);
+  } catch (e) {
+    if (mine !== identifying) return;
+    status('Could not reach the server. Fill in the details by hand.', true); showDetails();
+  }
 }
+
+if (AI_READY) $('manual').onclick = () => { setVerify(false); showDetails(); field('material').focus(); };
 
 // ---- scale: read the weight only when the button is pressed ----
 $('weigh').onclick = async () => {
@@ -61,8 +81,7 @@ $('weigh').onclick = async () => {
     const r = await (await fetch('/api/station/weight')).json();
     if (!r.ok) return status(r.error, true);
     $('weight').value = r.weight_g;
-    status(`Weight from the scale: ${r.weight_g} g.` +
-           (AI_READY && $('photo').files.length ? ' Press "Identify with AI" again to use it.' : ''));
+    status(`Weight from the scale: ${r.weight_g} g.`);
   } catch (e) {
     status('Could not reach the server.', true);
   } finally { $('weigh').disabled = false; }

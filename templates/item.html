@@ -1,7 +1,7 @@
 {% extends 'base.html' %}{% block content %}
 <div class="card"><span class="badge {{ item.status }}">{{ 'To be recycled' if item.status=='recycle' else 'In stock' }}</span>
 <h2>{{ item.name }}</h2><div class="meta">{{ item.material }} · {{ item.category_label }} item</div>
-<div class="grid"><div><small>Quantity</small>{{ item.quantity }}</div><div><small>Size</small>{{ item.size }}</div>
+<div class="grid"><div><small>{{ 'Quantity' if item.size else 'Count' }}</small>{{ item.quantity }}</div>{% if item.size %}<div><small>Size</small>{{ item.size }}</div>{% endif %}
 <div><small>Location</small>📍 {{ item.location }}</div><div><small>Days until recycling</small>{{ [item.days_left,0]|max }}</div></div>
 <p><small class="meta">Suggested uses</small><br>{{ item.use }}</p>
 {% if item.photo %}<p class="noprint"><img src="{{ url_for('static', filename=item.photo) }}" alt="Scan photo" style="max-width:100%;border-radius:12px"></p>

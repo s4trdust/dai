@@ -1,0 +1,12 @@
+# Python cache
+__pycache__/
+
+# Local data: the database, scan photos, generated QR labels, the station's IP
+database.db
+static/scans/
+static/qr/
+station/station_ip.txt
+station/background.jpg
+
+# WiFi password for the firmware (copy wifi_secrets.example.h)
+firmware/scrap_scanner/wifi_secrets.h

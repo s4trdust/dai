@@ -44,6 +44,8 @@ def decorate(row):
     d['days_left'] = int(left // DAY)
     d['category_label'] = CATEGORIES.get(d['category'], d['category'])
     d['labelled'] = d['category'] != 'small'   # small scraps are only counted; large/unique get a QR
+    # one of the station's storage sections 1-4 (shown separately in the library)
+    d['compartment'] = d['category'] == 'small' and bool(re.fullmatch(r'Section \d+', d['location']))
     return d
 
 
@@ -99,9 +101,9 @@ def take_item(item_id, n=1):
     return row['name'], n, left
 
 
-def add_to_count(location, name, material, use, size, n=1):
+def add_to_count(location, name, material, use, n=1):
     """Small scraps are only counted: +n on the item for that location and material
-    (created on first use, no QR label). Returns (item id, new quantity)."""
+    (created on first use, no QR label, no size). Returns (item id, new quantity)."""
     expiry = int(time.time() + EXPIRY_DAYS.get(material.lower(), 60) * DAY)
     with db() as con:
         row = con.execute("SELECT id, quantity FROM items WHERE category = 'small' AND location = ? "
@@ -113,7 +115,7 @@ def add_to_count(location, name, material, use, size, n=1):
         item_id = new_item_id(con)
         con.execute('INSERT INTO items (id,category,size,material,expiry,location,use,name,quantity) '
                     'VALUES (?,?,?,?,?,?,?,?,?)',
-                    (item_id, 'small', size, material, expiry, location, use, name, n))
+                    (item_id, 'small', '', material, expiry, location, use, name, n))
     return item_id, n
 
 
@@ -131,12 +133,11 @@ def deposit_small(material, n=1, location='', use=''):
     if section:
         s = station_config.SECTIONS[section]
         location = f'Section {section}'
-        item_id, qty = add_to_count(location, s['name'], s['material'], s['use'],
-                                    f'Under {station_config.MAX_LENGTH_CM:g} cm', n)
+        item_id, qty = add_to_count(location, s['name'], s['material'], s['use'], n)
         return item_id, s['name'], qty, location
     name = f'{material} scraps'
     location = location or station_config.MANUAL_AREA_NAME
-    item_id, qty = add_to_count(location, name, material, use or 'Small parts, prototyping', 'Small', n)
+    item_id, qty = add_to_count(location, name, material, use or 'Small parts, prototyping', n)
     return item_id, name, qty, location
 
 
@@ -183,9 +184,11 @@ def new():
         if f.get('category') == 'small':              # counted only, so no photo is kept
             item_id, name, total, location = deposit_small(material, quantity, f.get('location', '').strip(),
                                                            f.get('use', '').strip())
+            section = section_for(material) or station_config.MANUAL_AREA
+            flap_error = move_flap(section)           # turn the station's flap to that section
             return render_template('new.html', categories=CATEGORIES, defaults=EXPIRY_DAYS,
                                    ai_ready=client is not None, deposited=dict(id=item_id, name=name, added=quantity, total=total,
-                                                  location=location))
+                                                  location=location, section=section, flap_error=flap_error))
         days = int(f.get('days') or EXPIRY_DAYS.get(material.lower(), 60))
         with db() as con:
             item_id = new_item_id(con)
@@ -239,7 +242,9 @@ def suggestion(ai, length, width, measured):
     """AI answer + size -> values for the Register form."""
     material = '' if ai['material'] == 'unknown' else material_label(ai['material'])
     length, width = sorted([round(length, 1), round(width, 1)], reverse=True)
-    if ai['is_component']:
+    if ai['material'] in station_config.ALWAYS_SMALL:
+        category = 'small'
+    elif ai['is_component']:
         category = 'unique'
     elif length > station_config.MAX_LENGTH_CM or width > station_config.MAX_WIDTH_CM:
         category = 'large'
@@ -250,6 +255,7 @@ def suggestion(ai, length, width, measured):
                 size=f"{'' if measured else 'about '}{length:g} x {width:g} cm", measured=measured,
                 use=ai['suggested_use'], location=f'Section {section}' if section and category == 'small' else '',
                 confidence=ai['material_confidence'], unsure=ai['material_confidence'] < station_config.MIN_CONFIDENCE,
+                verify=ai['material_confidence'] < station_config.VERIFY_CONFIDENCE,
                 colour=ai['colour'], condition=ai['condition'], transparency=ai['transparency'],
                 description=ai['description'])
 
@@ -276,6 +282,20 @@ def station_url():
     if os.environ.get('STATION_URL'):
         return os.environ['STATION_URL'].rstrip('/')
     return f'http://{STATION_IP_PATH.read_text().strip()}' if STATION_IP_PATH.exists() else None
+
+
+def move_flap(section):
+    """Tell the ESP32 to turn the flap to a section (0 = manual area, 1-4 = storage sections).
+    Returns an error message for the page, or None if the flap moved."""
+    base = station_url()
+    if not base:
+        return 'The station has not connected yet, so the flap did not move.'
+    try:
+        with urllib.request.urlopen(f'{base}/flap?section={section}', timeout=5) as r:
+            reply = json.load(r)
+    except (OSError, ValueError):
+        return 'Could not reach the station, so the flap did not move. Is it on and connected to WiFi?'
+    return None if reply.get('ok') else f"The station did not move the flap ({reply.get('error', 'unknown error')})."
 
 
 @app.route('/api/station/weight')
@@ -420,6 +440,9 @@ def process_piece(jpeg, weight_g):
     try:
         ai = classify(client, GEMINI_MODELS, jpeg, annotated, weight_g, size.get('length_cm'),
                       size.get('width_cm'), size.get('area_cm2'))
+        if ai['material'] in station_config.ALWAYS_SMALL and 'too large for the sections' in reasons:
+            reasons.remove('too large for the sections')      # e.g. wire: coils up to fit
+            oversize = False
         if ai['material'] == 'unknown':
             unsure = True
             reasons.append('material unknown')
@@ -444,7 +467,7 @@ def process_piece(jpeg, weight_g):
     else:                                     # small, but no section / AI unsure: staff sort it
         name = f'{material} scraps'
         item_id, quantity = add_to_count(station_config.MANUAL_AREA_NAME, name, material,
-                                         ai.get('suggested_use') or 'Ask staff', 'Small')
+                                         ai.get('suggested_use') or 'Ask staff')
     return dict(ok=True, section=station_config.MANUAL_AREA, item_id=item_id, quantity=quantity,
                 name=name, reasons=reasons)
 

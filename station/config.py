@@ -22,6 +22,7 @@ MIN_PIECE_AREA_CM2 = 1.0  # ignore blobs smaller than this (dust, noise)
 
 # --- AI classification ------------------------------------------------------
 MIN_CONFIDENCE = 0.6      # below this, the piece goes to the manual area
+VERIFY_CONFIDENCE = 0.95  # Register page: below this, the person must tick "I've checked it"
 
 # --- Sorting ----------------------------------------------------------------
 # Small pieces are only counted. Sections 1-4 are each one library item whose
@@ -37,5 +38,8 @@ SECTIONS = {
 SECTION_BY_MATERIAL = {"acrylic": 1, "cardboard": 2, "wire": 3, "pla": 4}
 MANUAL_AREA = 0
 MANUAL_AREA_NAME = "Manual area"   # storage location shown in the library
-MAX_LENGTH_CM = 8.0       # set these to what actually fits in a section
-MAX_WIDTH_CM = 5.0
+MAX_LENGTH_CM = 10.0      # set these to what actually fits in a section
+MAX_WIDTH_CM = 10.0
+# Materials always counted into their section: no size limit (they bend or coil to fit) and
+# never treated as a component (e.g. a wire with plugs on the ends still goes to Wires).
+ALWAYS_SMALL = {"wire"}

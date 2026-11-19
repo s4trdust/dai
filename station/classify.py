@@ -51,7 +51,8 @@ as facts, do not re-estimate them. Use them as evidence: weight divided by \
 (area x your thickness estimate) gives a density, e.g. acrylic ~1.2 g/cm3, PLA ~1.25, \
 cardboard ~0.1-0.7, wood ~0.4-0.8, aluminium ~2.7, steel ~7.8.
 
-"wire" means electrical wire or cable. "pla" means 3D-printed plastic (visible layer \
+"wire" means electrical wire or cable; it is raw material (is_component false), even \
+with plugs or connectors on the ends. "pla" means 3D-printed plastic (visible layer \
 lines, typical printed shapes). When the evidence does not settle the material, pick \
 the most likely option and lower material_confidence, or answer "unknown". An honest \
 low confidence is far more useful than a confident wrong answer, because uncertain \

@@ -7,6 +7,12 @@
   <a href="{{ url_for('items', q=q) }}" class="{{ 'on' if category=='all' }}">All</a>
   {% for k,v in categories.items() %}<a href="{{ url_for('items', q=q, category=k) }}" class="{{ 'on' if category==k }}">{{ v }}</a>{% endfor %}
   <a href="{{ url_for('items', q=q, category=category, expiring=1) }}" class="{{ 'on' if expiring }}">Expiring soon</a></div>
-<p class="meta"><b>Available materials</b> · {{ items|length }} results</p>
-{% for i in items %}{% include '_card.html' %}{% else %}<p class="meta">No materials match.</p>{% endfor %}
+{% set sections = items|selectattr('compartment')|sort(attribute='location')|list %}
+{% set others = items|rejectattr('compartment')|list %}
+{% if sections %}<h3 style="margin:16px 0 4px">🗃️ Storage sections</h3>
+<p class="meta">Small pieces sorted by the scanning station into sections 1-4. Only the count is kept.</p>
+{% for i in sections %}{% include '_card.html' %}{% endfor %}{% endif %}
+<h3 style="margin:16px 0 4px">Other materials</h3>
+<p class="meta"><b>Available materials</b> · {{ others|length }} results</p>
+{% for i in others %}{% include '_card.html' %}{% else %}<p class="meta">No materials match.</p>{% endfor %}
 {% endblock %}

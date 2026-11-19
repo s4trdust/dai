@@ -38,7 +38,8 @@ firmware/scrap_scanner/   ESP32-S3 Arduino sketch
    marker 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left of the grid. Measure the
    centre-to-centre distances and set `MARKER_SPAN_X_CM` / `MARKER_SPAN_Y_CM` in
    `station/config.py`.
-5. **Firmware**: install the libraries listed at the top of the sketch, fill in WiFi and
+5. **Firmware**: install the libraries listed at the top of the sketch, copy
+   `wifi_secrets.example.h` to `wifi_secrets.h` and fill in your WiFi (that file is not committed), set
    `SERVER_URL`, set `SECTION_ANGLES` to your flap positions, and upload.
 6. **Scale calibration**: in Serial Monitor with the scale empty, send `t`. Put a known weight
    on (e.g. 500 g), send `c`, and set `SCALE_FACTOR = printed value / 500`.

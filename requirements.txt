@@ -3,3 +3,4 @@ qrcode[pil]
 google-genai
 opencv-python-headless
 numpy
+cryptography

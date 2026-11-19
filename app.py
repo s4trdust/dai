@@ -624,4 +624,17 @@ def ai_matcher():
 if __name__ == '__main__':
     # 0.0.0.0 so the ESP32 can reach it over WiFi. Debug mode stays off on the network
     # because its error page lets anyone on the network run code; set FLASK_DEBUG=1 to enable.
-    app.run(host='0.0.0.0', port=5000, debug=os.environ.get('FLASK_DEBUG') == '1')
+    debug = os.environ.get('FLASK_DEBUG') == '1'
+    # HTTPS on port 5443 as well, so phones/iPads can use the camera for QR scanning
+    # (browsers only allow it on https:// or localhost). The ESP32 keeps using http on 5000.
+    if not debug:
+        try:
+            from werkzeug.serving import make_server
+            from https_cert import ensure_cert, local_ips
+            https = make_server('0.0.0.0', 5443, app, threaded=True, ssl_context=ensure_cert())
+            threading.Thread(target=https.serve_forever, daemon=True).start()
+            others = [ip for ip in local_ips() if ip != '127.0.0.1']
+            print('Phones / iPads (camera works): ' + ', '.join(f'https://{ip}:5443' for ip in others))
+        except Exception as e:                 # never stop the normal website over this
+            print('HTTPS not started:', e)
+    app.run(host='0.0.0.0', port=5000, debug=debug)

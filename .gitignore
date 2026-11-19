@@ -8,5 +8,8 @@ static/qr/
 station/station_ip.txt
 station/background.jpg
 
+# HTTPS certificate + private key made by https_cert.py
+certs/
+
 # WiFi password for the firmware (copy wifi_secrets.example.h)
 firmware/scrap_scanner/wifi_secrets.h

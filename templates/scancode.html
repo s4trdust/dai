@@ -8,7 +8,7 @@
 <label for="code">Or enter an item code</label>
 <div class="row"><input id="code" inputmode="numeric" placeholder="Enter item ID or QR code"><button id="lookup" style="flex:0">Look up</button></div>
 <p id="status" class="note" role="status"></p><div id="result"></div>
-<p class="note">The camera needs HTTPS (or localhost).</p>
+<p class="note">The camera needs HTTPS: on a phone or iPad, open <b>https://{{ request.host.split(':')[0] }}:5443{{ url_for('scan') }}</b> (tap through the "not private" warning once).</p>
 
 <h3 style="margin-top:24px">Small scraps</h3><p class="meta">Small scraps have no label: choose what you took and how many.</p>
 {% for i in small %}<form class="card row" method="post" action="{{ url_for('take', item_id=i.id) }}">

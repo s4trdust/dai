@@ -34,8 +34,11 @@ const char* WIFI_SSID   = "YOUR_WIFI";
 const char* WIFI_PASS   = "YOUR_PASSWORD";
 const char* SERVER_URL  = "http://192.168.1.50:5000";  // IP of the PC running the website
 
-const int   HX711_DT_PIN  = 14;
-const int   HX711_SCK_PIN = 21;
+const int   HX711_DT_PIN  = 5;
+const int   HX711_SCK_PIN = 4;
+#if USE_CAMERA
+#error "GPIO 4 and 5 are camera pins on the Freenove board - move the HX711 before enabling the camera"
+#endif
 float       SCALE_FACTOR  = 420.0f;   // raw units per gram - see calibration in README
 
 const float STABLE_RANGE_G = 0.5f;    // max wobble between readings to count as settled

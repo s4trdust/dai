@@ -6,12 +6,13 @@ BACKGROUND_PATH = Path(__file__).parent / "background.jpg"   # photo of the empt
 SCAN_DIR = ROOT / "static" / "scans"                        # photos of manual-area items
 
 # --- Measuring board (ArUco markers) ----------------------------------------
-# Four markers from DICT_4X4_50 taped at the corners of the grid:
+# Four markers from DICT_4X4_50 at the corners of the board:
 #   ID 0 = top-left, ID 1 = top-right, ID 2 = bottom-right, ID 3 = bottom-left
-# Measure CENTRE-to-CENTRE distances with a ruler after taping them down and
-# enter them here. These numbers set the scale for every measurement.
-MARKER_SPAN_X_CM = 18.0   # centre of marker 0 -> centre of marker 1
-MARKER_SPAN_Y_CM = 27.0   # centre of marker 0 -> centre of marker 3
+# These values match the printable A4 board from `python -m station.make_markers`.
+# If you place markers yourself, measure CENTRE-to-CENTRE distances instead.
+# These numbers set the scale for every measurement.
+MARKER_SPAN_X_CM = 16.0   # centre of marker 0 -> centre of marker 1
+MARKER_SPAN_Y_CM = 24.7   # centre of marker 0 -> centre of marker 3
 MARKER_SIZE_CM = 3.0      # printed side length of one marker (black border included)
 PX_PER_CM = 20            # resolution of the rectified top-down image
 

@@ -169,6 +169,11 @@ void scanPiece(float grams) {
     moveFlap(MANUAL_AREA);
     return;
   }
+  if (doc["hold"] | false) {
+    // The website's Register page asked for this photo: don't sort, the person takes the item off.
+    Serial.println("Photo sent to the Register page - take the item off the scale");
+    return;
+  }
   Serial.printf("Item %ld: %s (quantity now %d)\n", doc["item_id"].as<long>(),
                 doc["name"] | "?", doc["quantity"] | 1);
   moveFlap(doc["section"] | MANUAL_AREA);

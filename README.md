@@ -8,6 +8,12 @@ identifies it with Gemini, and either:
 - **sends it to the manual area (0)**: too large, other materials, or the AI is unsure.
   The piece becomes its own library item with size, weight, photo, AI notes and a QR label.
 
+The **Register** page also uses the AI by default. Press "Use scanning station" and put the
+item on the scale: the next piece the ESP32 sends is held for the page instead of being
+sorted (the flap does not move), measured on the board, and identified. Or take/choose a
+photo on the device (weight optional). Either way Gemini fills in the form for you to check. "Fill in by hand instead" skips the AI.
+Sizes from a phone photo are only estimates, so check them.
+
 ```
 app.py, database.py, templates/, static/   the website (database.db)
 station/config.py         sections, size limits, board/marker settings

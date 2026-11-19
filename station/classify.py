@@ -26,21 +26,28 @@ SCHEMA = {
         "estimated_thickness_cm": {"type": "number", "description": "rough guess; 0 if impossible to judge"},
         "suggested_use": {"type": "string", "description": "a few student project ideas, comma separated"},
         "description": {"type": "string", "description": "one or two sentences: shape, damage, notable features"},
+        "length_cm": {"type": "number", "description": "the measured length if given, else your estimate"},
+        "width_cm": {"type": "number", "description": "the measured width if given, else your estimate"},
+        "is_component": {"type": "boolean", "description": "true for a distinct reusable object (e.g. "
+                         "Arduino, motor, sensor, tool); false for raw material or offcuts"},
     },
-    "required": ["name", "material", "material_confidence", "colour", "condition",
-                 "transparency", "estimated_thickness_cm", "suggested_use", "description"],
+    "required": ["name", "material", "material_confidence", "colour", "condition", "transparency",
+                 "estimated_thickness_cm", "suggested_use", "description", "length_cm", "width_cm",
+                 "is_component"],
 }
 
-SYSTEM_PROMPT = """You inspect pieces of scrap deposited at a school scrapyard's sorting station.
+SYSTEM_PROMPT = """You inspect pieces of scrap deposited at a school scrapyard.
 
-Each piece lies on a measuring board photographed from directly above. The board \
-has a grid labelled in cm and four black-and-white square markers at its corners; \
-ignore the markers and grid except as a size reference. You get two images: the raw \
-photo, and a straightened top-down view with the detected piece outlined in green \
-(red box = measured bounding rectangle).
+Usually the piece lies on a measuring board photographed from directly above. The \
+board has a grid labelled in cm and four black-and-white square markers at its \
+corners; ignore the markers and grid except as a size reference. You may get a \
+second image: a straightened top-down view with the detected piece outlined in \
+green (red box = measured bounding rectangle). Sometimes a student photographs the \
+item by hand with a phone instead; then estimate its size from the photo (rulers, \
+hands, familiar objects) and say so in the description.
 
-Length, width, area and weight are measured by instruments and given to you as \
-facts - use them, do not re-estimate them. Use them as evidence: weight divided by \
+Length, width, area and weight, when given, are measured by instruments - use them \
+as facts, do not re-estimate them. Use them as evidence: weight divided by \
 (area x your thickness estimate) gives a density, e.g. acrylic ~1.2 g/cm3, PLA ~1.25, \
 cardboard ~0.1-0.7, wood ~0.4-0.8, aluminium ~2.7, steel ~7.8.
 
@@ -61,15 +68,18 @@ def material_label(material: str) -> str:
 
 
 def classify(client, models: list[str], photo_jpeg: bytes, annotated_jpeg: bytes | None,
-             weight_g: float, length_cm: float | None, width_cm: float | None,
-             area_cm2: float | None) -> dict:
+             weight_g: float | None, length_cm: float | None, width_cm: float | None,
+             area_cm2: float | None, hand_photo: bool = False) -> dict:
     if client is None:
         raise ClassificationError("Gemini not configured (set GEMINI_API_KEY)")
-    if length_cm is None:
-        facts = f"Weight: {weight_g:.1f} g. Dimensions could not be measured automatically."
+    facts = f"Weight: {weight_g:.1f} g." if weight_g is not None else "Weight: not weighed."
+    if hand_photo:
+        facts += " This is a hand-held phone photo, not the measuring board: estimate the size."
+    elif length_cm is None:
+        facts += " Dimensions could not be measured automatically."
     else:
-        facts = (f"Weight: {weight_g:.1f} g. Measured length: {length_cm} cm, "
-                 f"width: {width_cm} cm, top-view area: {area_cm2} cm2.")
+        facts += (f" Measured length: {length_cm} cm, width: {width_cm} cm, "
+                  f"top-view area: {area_cm2} cm2.")
 
     contents = [types.Part.from_bytes(data=photo_jpeg, mime_type="image/jpeg")]
     if annotated_jpeg is not None:

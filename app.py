@@ -1,4 +1,4 @@
-import os, re, sqlite3, time
+import os, re, sqlite3, threading, time
 import cv2
 from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
 import qrcode
@@ -179,23 +179,159 @@ def new():
         f = request.form
         material = f.get('material', '').strip()
         quantity = max(1, int(f.get('quantity') or 1))
-        if f.get('category') == 'small':
+        jpeg = photo_jpeg(request.files.get('photo'))
+        token = f.get('photo_token', '')
+        if token.isdigit():                           # photo held from the scanning station
+            pending = station_config.SCAN_DIR / f'pending_{token}.jpg'
+            if not jpeg and pending.exists():
+                jpeg = pending.read_bytes()
+            try:
+                pending.unlink(missing_ok=True)
+            except OSError:                           # busy (Windows); cleared later by station_arm
+                pass
+        if f.get('category') == 'small':              # counted only, so no photo is kept
             item_id, name, total, location = deposit_small(material, quantity, f.get('location', '').strip(),
                                                            f.get('use', '').strip())
             return render_template('new.html', categories=CATEGORIES, defaults=EXPIRY_DAYS,
-                                   deposited=dict(id=item_id, name=name, added=quantity, total=total,
+                                   ai_ready=client is not None, deposited=dict(id=item_id, name=name, added=quantity, total=total,
                                                   location=location))
         days = int(f.get('days') or EXPIRY_DAYS.get(material.lower(), 60))
         with db() as con:
             item_id = new_item_id(con)
-            con.execute('INSERT INTO items (id,category,size,material,expiry,location,use,name,quantity) '
-                        'VALUES (?,?,?,?,?,?,?,?,?)',
+            photo = None
+            if jpeg:                                  # keep the AI photo on the item page
+                photo = f'scans/{item_id}.jpg'
+                (station_config.SCAN_DIR / f'{item_id}.jpg').write_bytes(jpeg)
+            con.execute('INSERT INTO items (id,category,size,material,expiry,location,use,name,quantity,'
+                        'weight_g,colour,condition,transparency,description,photo) '
+                        'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                         (item_id, f.get('category', 'small'), f.get('size', '').strip() or 'Standard', material,
                          int(time.time() + days * DAY), f.get('location', '').strip(), f.get('use', '').strip(),
-                         f.get('name', '').strip() or material, quantity))
+                         f.get('name', '').strip() or material, quantity,
+                         f.get('weight_g', type=float), f.get('colour') or None, f.get('condition') or None,
+                         f.get('transparency') or None, f.get('description') or None, photo))
         make_qr(item_id)
         return redirect(url_for('item', item_id=item_id))
-    return render_template('new.html', categories=CATEGORIES, defaults=EXPIRY_DAYS)
+    return render_template('new.html', categories=CATEGORIES, defaults=EXPIRY_DAYS, ai_ready=client is not None)
+
+
+def photo_jpeg(upload, max_side=1600):
+    """Uploaded phone photo -> smaller JPEG bytes (or None). Phone photos are large;
+    1600 px is plenty for the AI and keeps uploads and stored photos small."""
+    if not upload:
+        return None
+    try:
+        img = decode_jpeg(upload.read())
+    except MeasurementError:
+        return None
+    scale = max_side / max(img.shape[:2])
+    if scale < 1:
+        img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    return cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 88])[1].tobytes()
+
+
+@app.route('/api/identify', methods=['POST'])
+def identify():
+    """Register page: phone photo (+ optional weight) -> suggested form values from Gemini."""
+    jpeg = photo_jpeg(request.files.get('photo'))
+    if not jpeg:
+        return jsonify(ok=False, error='Could not read that photo. Try a JPEG or PNG.'), 400
+    try:
+        ai = classify(client, GEMINI_MODELS, jpeg, None, request.form.get('weight_g', type=float),
+                      None, None, None, hand_photo=True)
+    except ClassificationError as e:
+        return jsonify(ok=False, error=f'AI could not identify it ({e}). Fill in the details by hand.')
+    return jsonify(suggestion(ai, ai['length_cm'], ai['width_cm'], measured=False))
+
+
+def suggestion(ai, length, width, measured):
+    """AI answer + size -> values for the Register form."""
+    material = '' if ai['material'] == 'unknown' else material_label(ai['material'])
+    length, width = sorted([round(length, 1), round(width, 1)], reverse=True)
+    if ai['is_component']:
+        category = 'unique'
+    elif length > station_config.MAX_LENGTH_CM or width > station_config.MAX_WIDTH_CM:
+        category = 'large'
+    else:
+        category = 'small'
+    section = section_for(material) if material else None
+    return dict(ok=True, name=ai['name'], material=material, category=category,
+                size=f"{'' if measured else 'about '}{length:g} x {width:g} cm", measured=measured,
+                use=ai['suggested_use'], location=f'Section {section}' if section and category == 'small' else '',
+                confidence=ai['material_confidence'], unsure=ai['material_confidence'] < station_config.MIN_CONFIDENCE,
+                colour=ai['colour'], condition=ai['condition'], transparency=ai['transparency'],
+                description=ai['description'])
+
+
+# Register with the scanning station: the Register page "arms" the station, and the next piece
+# the ESP32 sends is held for the page instead of being sorted (the flap does not move).
+station_hold = {'until': 0.0, 'photo': None, 'weight_g': None}
+station_lock = threading.Lock()
+HOLD_SECONDS = 120
+
+
+@app.route('/api/station/arm', methods=['POST'])
+def station_arm():
+    for old in station_config.SCAN_DIR.glob('pending_*.jpg'):   # photos from abandoned registrations
+        if old.stat().st_mtime < time.time() - 3600:
+            old.unlink(missing_ok=True)
+    with station_lock:
+        station_hold.update(until=time.time() + HOLD_SECONDS, photo=None, weight_g=None)
+    return jsonify(ok=True, seconds=HOLD_SECONDS)
+
+
+@app.route('/api/station/cancel', methods=['POST'])
+def station_cancel():
+    with station_lock:
+        station_hold.update(until=0.0, photo=None, weight_g=None)
+    return jsonify(ok=True)
+
+
+@app.route('/api/station/capture')
+def station_capture():
+    """Polled by the Register page. Returns the photo's token as soon as the ESP32 has sent one,
+    so the page can show it while /api/station/identify works on it."""
+    with station_lock:
+        jpeg, weight_g = station_hold['photo'], station_hold['weight_g']
+        armed = station_hold['until'] > time.time()
+        if jpeg:
+            station_hold.update(photo=None)
+    if not jpeg:
+        return jsonify(ok=True, waiting=armed)
+
+    token = str(int(time.time() * 1000))         # photo kept until the form is submitted
+    (station_config.SCAN_DIR / f'pending_{token}.jpg').write_bytes(jpeg)
+    return jsonify(ok=True, waiting=False, photo_token=token, weight_g=weight_g)
+
+
+@app.route('/api/station/identify', methods=['POST'])
+def station_identify():
+    """Measure + identify a held station photo (token from /api/station/capture)."""
+    token, weight_g = request.form.get('photo_token', ''), request.form.get('weight_g', type=float)
+    pending = station_config.SCAN_DIR / f'pending_{token}.jpg'
+    if not token.isdigit() or not pending.exists():
+        return jsonify(ok=False, error='That station photo is gone. Press the button again.'), 404
+    jpeg = pending.read_bytes()
+    size, annotated, note = None, None, ''
+    try:
+        if not station_config.BACKGROUND_PATH.exists():
+            raise MeasurementError('no empty-board photo yet')
+        m = measure(decode_jpeg(jpeg), decode_jpeg(station_config.BACKGROUND_PATH.read_bytes()))
+        annotated = cv2.imencode('.jpg', m.annotated)[1].tobytes()
+        if m.touches_edge:
+            note = 'The item goes past the board, so its size is an AI estimate.'
+        else:
+            size = m
+    except MeasurementError as e:
+        note = f'Size not measured ({e}), so it is an AI estimate.'
+    try:
+        ai = classify(client, GEMINI_MODELS, jpeg, annotated, weight_g,
+                      size and size.length_cm, size and size.width_cm, size and size.area_cm2)
+    except ClassificationError as e:
+        return jsonify(ok=False, error=f'AI could not identify it ({e}). Fill in the details by hand.')
+    result = suggestion(ai, size.length_cm if size else ai['length_cm'],
+                        size.width_cm if size else ai['width_cm'], measured=size is not None)
+    return jsonify(**result, note=note)
 
 
 @app.route('/guide')
@@ -277,6 +413,11 @@ def station_scan():
     jpeg, weight_g = request.get_data(), request.args.get('weight_g', type=float)
     if not jpeg or weight_g is None:
         return jsonify(ok=False, error='send the JPEG as the body and ?weight_g=...'), 400
+    with station_lock:                        # Register page is waiting for this piece
+        if station_hold['until'] > time.time():
+            station_hold.update(until=0.0, photo=jpeg, weight_g=weight_g)
+            return jsonify(ok=True, hold=True, section=station_config.MANUAL_AREA, item_id=0,
+                           quantity=0, name='held for the Register page')
     return jsonify(process_piece(jpeg, weight_g))
 
 

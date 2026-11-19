@@ -3,7 +3,22 @@
 {% if deposited %}<div class="card" style="background:var(--tint)" role="status">✅ <b>Deposited.</b>
   {{ deposited.added }} × {{ deposited.name }} added. Place {{ 'it' if deposited.added == 1 else 'them' }} in <b>📍 {{ deposited.location }}</b>.
   <div class="meta">{{ deposited.total }} now in stock · <a href="{{ url_for('item', item_id=deposited.id) }}">view</a></div></div>{% endif %}
-<form method="post" class="card">
+<form method="post" class="card" enctype="multipart/form-data" id="register">
+{% if ai_ready %}<div id="ai-step">
+  <p class="row"><button type="button" class="primary" id="station">⚖️ Use scanning station</button></p>
+  <p class="note">Press it, then put the item on the scale. The station takes the photo and weight, and the AI fills in the form.</p>
+  <p class="note"><b>Or</b> use a photo from this device:</p>
+  <label for="photo">📷 Photo of the item</label>
+  <input id="photo" name="photo" type="file" accept="image/*">
+  <label for="weight">Weight in grams <span class="note">(optional, helps the AI tell materials apart)</span></label>
+  <input id="weight" name="weight_g" type="number" min="0" step="0.1" placeholder="e.g. 42">
+  <p class="row"><button type="button" class="btn" id="identify">Identify with AI</button>
+     <button type="button" class="btn" id="manual">Fill in by hand instead</button></p>
+  <p id="ai-status" class="note" role="status"></p>
+  <img id="preview" alt="Photo of the item" hidden style="display:block;max-width:100%;max-height:360px;border-radius:12px;margin:8px 0">
+  <p id="preview-note" class="note" hidden>This photo is saved on the item's page (large and unique items).</p>
+</div>{% else %}<p class="note">AI identification is off (no GEMINI_API_KEY set), so fill in the details by hand.</p>{% endif %}
+<div id="details"{% if ai_ready %} hidden{% endif %}>
 <label>Type</label><select name="category">{% for k,v in categories.items() %}<option value="{{ k }}">{{ v }}{{ {'small':' / scraps, counted only','large':' / awkward, gets a QR label','unique':' / important, gets a QR label'}[k] }}</option>{% endfor %}</select>
 <label>Material</label><input name="material" required placeholder="Acrylic, Cardboard, Wire, PLA, Wood…" list="m">
 <datalist id="m">{% for m in defaults %}<option value="{{ m|capitalize }}">{% endfor %}</datalist>
@@ -12,5 +27,7 @@
 <label>Storage location <span class="note">(small acrylic, cardboard, wire and PLA go to their section automatically)</span></label><input name="location" placeholder="e.g. Shelf C01">
 <label>Suggested uses</label><textarea name="use" placeholder="Used for…"></textarea>
 <label>Days before "to be recycled" <span class="note">(blank = default for the material)</span></label><input name="days" type="number" min="1">
-<p><button class="primary">Register</button></p></form>
+{% for f in ['colour', 'condition', 'transparency', 'description', 'photo_token'] %}<input type="hidden" name="{{ f }}">{% endfor %}
+<p><button class="primary">Register</button></p></div></form>
+{% if ai_ready %}<script src="{{ url_for('static', filename='register.js') }}"></script>{% endif %}
 {% endblock %}

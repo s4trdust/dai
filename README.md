@@ -8,11 +8,14 @@ identifies it with Gemini, and either:
 - **sends it to the manual area (0)**: too large, other materials, or the AI is unsure.
   The piece becomes its own library item with size, weight, photo, AI notes and a QR label.
 
-The **Register** page also uses the AI by default. Press "Use scanning station" and put the
-item on the scale: the next piece the ESP32 sends is held for the page instead of being
-sorted (the flap does not move), measured on the board, and identified. Or take/choose a
-photo on the device (weight optional). Either way Gemini fills in the form for you to check. "Fill in by hand instead" skips the AI.
-Sizes from a phone photo are only estimates, so check them.
+The **Register** page takes a photo uploaded from the device; Gemini identifies it and fills
+in the form for you to check. "Fill in by hand instead" skips the AI. Sizes from a photo are
+only estimates, so check them.
+For the weight, put the item on the station's scale and press "Get weight from scale". Only
+then does the website ask the ESP32 for a reading (`GET http://<ESP32 IP>/weight`). The website
+remembers the ESP32's IP from the photos it sends (saved in `station/station_ip.txt`), or you
+can set it with `setx STATION_URL http://<ESP32 IP>`. While a Register page is open, the
+station does not sort pieces put on the scale (the flap does not move).
 
 ```
 app.py, database.py, templates/, static/   the website (database.db)

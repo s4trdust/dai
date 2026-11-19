@@ -1,4 +1,4 @@
-import os, re, sqlite3, threading, time
+import json, os, re, sqlite3, threading, time, urllib.request
 import cv2
 from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
 import qrcode
@@ -179,16 +179,7 @@ def new():
         f = request.form
         material = f.get('material', '').strip()
         quantity = max(1, int(f.get('quantity') or 1))
-        jpeg = photo_jpeg(request.files.get('photo'))
-        token = f.get('photo_token', '')
-        if token.isdigit():                           # photo held from the scanning station
-            pending = station_config.SCAN_DIR / f'pending_{token}.jpg'
-            if not jpeg and pending.exists():
-                jpeg = pending.read_bytes()
-            try:
-                pending.unlink(missing_ok=True)
-            except OSError:                           # busy (Windows); cleared later by station_arm
-                pass
+        jpeg = photo_jpeg(request.files.get('photo'))     # uploaded on the Register page
         if f.get('category') == 'small':              # counted only, so no photo is kept
             item_id, name, total, location = deposit_small(material, quantity, f.get('location', '').strip(),
                                                            f.get('use', '').strip())
@@ -263,75 +254,58 @@ def suggestion(ai, length, width, measured):
                 description=ai['description'])
 
 
-# Register with the scanning station: the Register page "arms" the station, and the next piece
-# the ESP32 sends is held for the page instead of being sorted (the flap does not move).
-station_hold = {'until': 0.0, 'photo': None, 'weight_g': None}
+# Register page + scale: the weight is read only when the person presses "Get weight from scale".
+# The website then asks the ESP32 for one reading (GET http://<ESP32>/weight). The ESP32's address
+# is remembered from the photos it sends, or set with the STATION_URL environment variable.
+# While a Register page is open it keeps the station "held", so a piece put on the scale to be
+# weighed is not photographed and sorted (the flap does not move).
 station_lock = threading.Lock()
-HOLD_SECONDS = 120
+register_hold = {'until': 0.0}
+HOLD_SECONDS = 30            # the Register page renews this every 10 s while it is open
+STATION_IP_PATH = station_config.BACKGROUND_PATH.with_name('station_ip.txt')
 
 
-@app.route('/api/station/arm', methods=['POST'])
-def station_arm():
-    for old in station_config.SCAN_DIR.glob('pending_*.jpg'):   # photos from abandoned registrations
-        if old.stat().st_mtime < time.time() - 3600:
-            old.unlink(missing_ok=True)
+def remember_station():
+    """Called on requests from the ESP32: keep its IP so the website can ask it for the weight."""
+    ip = request.remote_addr
+    if ip and (not STATION_IP_PATH.exists() or STATION_IP_PATH.read_text().strip() != ip):
+        STATION_IP_PATH.write_text(ip)
+
+
+def station_url():
+    if os.environ.get('STATION_URL'):
+        return os.environ['STATION_URL'].rstrip('/')
+    return f'http://{STATION_IP_PATH.read_text().strip()}' if STATION_IP_PATH.exists() else None
+
+
+@app.route('/api/station/weight')
+def api_station_weight():
+    """Register page button: ask the scale for the weight right now."""
+    base = station_url()
+    if not base:
+        return jsonify(ok=False, error='The station has not connected yet. Power it on with the board empty.')
+    try:
+        with urllib.request.urlopen(f'{base}/weight', timeout=5) as r:
+            reading = json.load(r)
+    except (OSError, ValueError):
+        return jsonify(ok=False, error='Could not reach the scale. Is the station on and connected to WiFi?')
+    if not reading.get('stable'):
+        return jsonify(ok=False, error='The scale is still settling. Keep the item still and press again.')
+    return jsonify(ok=True, weight_g=round(max(float(reading['g']), 0.0), 1))
+
+
+@app.route('/api/station/hold', methods=['POST'])
+def station_hold_renew():
     with station_lock:
-        station_hold.update(until=time.time() + HOLD_SECONDS, photo=None, weight_g=None)
-    return jsonify(ok=True, seconds=HOLD_SECONDS)
-
-
-@app.route('/api/station/cancel', methods=['POST'])
-def station_cancel():
-    with station_lock:
-        station_hold.update(until=0.0, photo=None, weight_g=None)
+        register_hold['until'] = time.time() + HOLD_SECONDS
     return jsonify(ok=True)
 
 
-@app.route('/api/station/capture')
-def station_capture():
-    """Polled by the Register page. Returns the photo's token as soon as the ESP32 has sent one,
-    so the page can show it while /api/station/identify works on it."""
+@app.route('/api/station/release', methods=['POST'])
+def station_release():
     with station_lock:
-        jpeg, weight_g = station_hold['photo'], station_hold['weight_g']
-        armed = station_hold['until'] > time.time()
-        if jpeg:
-            station_hold.update(photo=None)
-    if not jpeg:
-        return jsonify(ok=True, waiting=armed)
-
-    token = str(int(time.time() * 1000))         # photo kept until the form is submitted
-    (station_config.SCAN_DIR / f'pending_{token}.jpg').write_bytes(jpeg)
-    return jsonify(ok=True, waiting=False, photo_token=token, weight_g=weight_g)
-
-
-@app.route('/api/station/identify', methods=['POST'])
-def station_identify():
-    """Measure + identify a held station photo (token from /api/station/capture)."""
-    token, weight_g = request.form.get('photo_token', ''), request.form.get('weight_g', type=float)
-    pending = station_config.SCAN_DIR / f'pending_{token}.jpg'
-    if not token.isdigit() or not pending.exists():
-        return jsonify(ok=False, error='That station photo is gone. Press the button again.'), 404
-    jpeg = pending.read_bytes()
-    size, annotated, note = None, None, ''
-    try:
-        if not station_config.BACKGROUND_PATH.exists():
-            raise MeasurementError('no empty-board photo yet')
-        m = measure(decode_jpeg(jpeg), decode_jpeg(station_config.BACKGROUND_PATH.read_bytes()))
-        annotated = cv2.imencode('.jpg', m.annotated)[1].tobytes()
-        if m.touches_edge:
-            note = 'The item goes past the board, so its size is an AI estimate.'
-        else:
-            size = m
-    except MeasurementError as e:
-        note = f'Size not measured ({e}), so it is an AI estimate.'
-    try:
-        ai = classify(client, GEMINI_MODELS, jpeg, annotated, weight_g,
-                      size and size.length_cm, size and size.width_cm, size and size.area_cm2)
-    except ClassificationError as e:
-        return jsonify(ok=False, error=f'AI could not identify it ({e}). Fill in the details by hand.')
-    result = suggestion(ai, size.length_cm if size else ai['length_cm'],
-                        size.width_cm if size else ai['width_cm'], measured=size is not None)
-    return jsonify(**result, note=note)
+        register_hold['until'] = 0.0
+    return jsonify(ok=True)
 
 
 @app.route('/guide')
@@ -399,6 +373,7 @@ def recycle(item_id):
 def station_background():
     """ESP32 sends a photo of the EMPTY board on boot / when lighting changes."""
     jpeg = request.get_data()
+    remember_station()
     try:
         rectify(decode_jpeg(jpeg))            # check the corner markers are visible
     except MeasurementError as e:
@@ -413,11 +388,12 @@ def station_scan():
     jpeg, weight_g = request.get_data(), request.args.get('weight_g', type=float)
     if not jpeg or weight_g is None:
         return jsonify(ok=False, error='send the JPEG as the body and ?weight_g=...'), 400
-    with station_lock:                        # Register page is waiting for this piece
-        if station_hold['until'] > time.time():
-            station_hold.update(until=0.0, photo=jpeg, weight_g=weight_g)
-            return jsonify(ok=True, hold=True, section=station_config.MANUAL_AREA, item_id=0,
-                           quantity=0, name='held for the Register page')
+    remember_station()
+    with station_lock:                        # someone is weighing it on the Register page
+        held = register_hold['until'] > time.time()
+    if held:
+        return jsonify(ok=True, hold=True, section=station_config.MANUAL_AREA, item_id=0,
+                       quantity=0, name='held for the Register page')
     return jsonify(process_piece(jpeg, weight_g))
 
 

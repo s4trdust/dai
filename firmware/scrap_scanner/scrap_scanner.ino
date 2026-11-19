@@ -1,22 +1,33 @@
-// Scrap scanner firmware - Freenove ESP32-S3 WROOM CAM + HX711 load cell + servo flap
+// Scrap scanner firmware - ESP32 + HX711 load cell (+ optional camera and servo flap)
 //
-// Arduino IDE settings:  Board "ESP32S3 Dev Module", PSRAM "OPI PSRAM",
-//                        Flash size to match your board (usually 8MB or 16MB)
-// Libraries (Library Manager):  "HX711" by Bogdan Necula, "ArduinoJson" by Benoit Blanchon,
-//                               "ESP32Servo" by Kevin Harrington
+// USE_CAMERA 0 (default): scale only. The weight is printed in the Serial Monitor, and the
+//   website's Register page reads it with its "Get weight from scale" button
+//   (GET http://<this IP>/weight).
+//   Board: any ESP32 (e.g. "ESP32 Dev Module").  Library: "HX711" by Bogdan Necula.
 //
-// Flow: wait for a stable weight -> take photo -> POST to the website -> move flap to
-//       the returned section (or manual area) -> wait until the piece is removed -> repeat.
+// USE_CAMERA 1: full sorting station (Freenove ESP32-S3 WROOM CAM). Wait for a stable weight ->
+//   take photo -> POST to the website -> move flap to the returned section -> wait until the
+//   piece is removed -> repeat.
+//   Board "ESP32S3 Dev Module", PSRAM "OPI PSRAM". Extra libraries: "ArduinoJson" by
+//   Benoit Blanchon, "ESP32Servo" by Kevin Harrington.
 //
-// Serial commands (115200 baud):  t = tare scale,  b = resend empty-board photo,
-//                                 c = print raw reading for calibration
+// Serial Monitor at 115200 baud. Commands:
+//   t = tare (zero) the scale - take everything off it first
+//   c = print raw reading for calibration
+//   p = pause / resume the weight printout
+//   b = resend empty-board photo (camera only)
+
+#define USE_CAMERA 0
 
 #include <WiFi.h>
+#include <WebServer.h>
+#include "HX711.h"
+#if USE_CAMERA
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <ESP32Servo.h>
 #include "esp_camera.h"
-#include "HX711.h"
+#endif
 
 // ---------------- Settings to edit ----------------
 const char* WIFI_SSID   = "YOUR_WIFI";
@@ -27,16 +38,19 @@ const int   HX711_DT_PIN  = 14;
 const int   HX711_SCK_PIN = 21;
 float       SCALE_FACTOR  = 420.0f;   // raw units per gram - see calibration in README
 
+const float STABLE_RANGE_G = 0.5f;    // max wobble between readings to count as settled
+const int   STABLE_SAMPLES = 8;
+const unsigned long WIFI_WAIT_MS = 20000;  // give up waiting for WiFi at boot after this
+
+#if USE_CAMERA
 const int   SERVO_PIN = 47;
 // Flap angle per destination: index 0 = manual area, 1-4 = storage sections 1-4
 // (what each section holds is set on the website side in station/config.py)
 const int   SECTION_ANGLES[5] = {175, 20, 60, 100, 140};
 const int   MANUAL_AREA = 0;          // also used if the website can't be reached
 
-const float PRESENT_G      = 5.0f;    // above this, a piece is on the scale
-const float EMPTY_G        = 2.0f;    // below this, the scale is empty again
-const float STABLE_RANGE_G = 0.5f;    // max wobble between readings to count as settled
-const int   STABLE_SAMPLES = 8;
+const float PRESENT_G = 5.0f;         // above this, a piece is on the scale
+const float EMPTY_G   = 2.0f;         // below this, the scale is empty again
 
 // ---------------- Camera pins (Freenove ESP32-S3 WROOM CAM / ESP32-S3-EYE) ----------------
 #define PWDN_GPIO_NUM  -1
@@ -55,8 +69,36 @@ const int   STABLE_SAMPLES = 8;
 #define VSYNC_GPIO_NUM  6
 #define HREF_GPIO_NUM   7
 #define PCLK_GPIO_NUM  13
+#endif
 
 HX711 scale;
+WebServer web(80);   // answers the website's weight requests
+bool printWeight = true;
+
+// Returns true and sets `grams` when STABLE_SAMPLES readings agree within STABLE_RANGE_G.
+bool readStableWeight(float& grams) {
+  float lo = 1e9, hi = -1e9, sum = 0;
+  for (int i = 0; i < STABLE_SAMPLES; i++) {
+    float g = scale.get_units(1);
+    lo = min(lo, g);
+    hi = max(hi, g);
+    sum += g;
+  }
+  grams = sum / STABLE_SAMPLES;
+  return (hi - lo) <= STABLE_RANGE_G;
+}
+
+// GET /weight - asked by the website only when "Get weight from scale" is pressed on the
+// Register page. Takes one fresh reading and replies {"g": 152.3, "stable": true}.
+void handleWeightRequest() {
+  float grams;
+  bool stable = readStableWeight(grams);
+  web.send(200, "application/json",
+           "{\"g\":" + String(grams, 1) + ",\"stable\":" + (stable ? "true" : "false") + "}");
+  Serial.printf("Weight sent to the website: %.1f g%s\n", grams, stable ? "" : " (not settled)");
+}
+
+#if USE_CAMERA
 Servo flap;
 enum State { WAIT_FOR_PIECE, WAIT_FOR_REMOVAL };
 State state = WAIT_FOR_PIECE;
@@ -105,19 +147,6 @@ camera_fb_t* takePhoto() {
     if (old) esp_camera_fb_return(old);
   }
   return esp_camera_fb_get();
-}
-
-// Returns true and sets `grams` when STABLE_SAMPLES readings agree within STABLE_RANGE_G.
-bool readStableWeight(float& grams) {
-  float lo = 1e9, hi = -1e9, sum = 0;
-  for (int i = 0; i < STABLE_SAMPLES; i++) {
-    float g = scale.get_units(1);
-    lo = min(lo, g);
-    hi = max(hi, g);
-    sum += g;
-  }
-  grams = sum / STABLE_SAMPLES;
-  return (hi - lo) <= STABLE_RANGE_G;
 }
 
 // POSTs the photo; returns the HTTP status (negative on connection failure).
@@ -170,54 +199,108 @@ void scanPiece(float grams) {
     return;
   }
   if (doc["hold"] | false) {
-    // The website's Register page asked for this photo: don't sort, the person takes the item off.
-    Serial.println("Photo sent to the Register page - take the item off the scale");
+    // Someone is weighing this item on the website's Register page: don't sort it.
+    Serial.println("Register page open - not sorting, take the item off when done");
     return;
   }
   Serial.printf("Item %ld: %s (quantity now %d)\n", doc["item_id"].as<long>(),
                 doc["name"] | "?", doc["quantity"] | 1);
   moveFlap(doc["section"] | MANUAL_AREA);
 }
+#endif
 
 void handleSerial() {
   if (!Serial.available()) return;
   char cmd = Serial.read();
-  if (cmd == 't') { scale.tare(20); Serial.println("Tared"); }
-  if (cmd == 'b') sendBackground();
+  if (cmd == 't') {
+    Serial.println("Taring... keep the scale empty and still");
+    scale.tare(20);
+    Serial.println("Tared: the scale now reads 0 g");
+  }
   if (cmd == 'c') {
     // Put a known weight on, then SCALE_FACTOR = printed value / known grams.
     Serial.printf("Raw (tared) reading: %.1f\n", scale.get_value(20));
   }
+  if (cmd == 'p') {
+    printWeight = !printWeight;
+    Serial.println(printWeight ? "Weight printout on" : "Weight printout paused (p to resume)");
+  }
+#if USE_CAMERA
+  if (cmd == 'b') sendBackground();
+#endif
+}
+
+// Prints the IP once WiFi connects (also if it connects or reconnects later).
+void reportWifi() {
+  static bool wasConnected = false;
+  bool connected = WiFi.status() == WL_CONNECTED;
+  if (connected && !wasConnected) {
+    Serial.printf("WiFi connected, IP %s  (website: setx STATION_URL http://%s)\n",
+                  WiFi.localIP().toString().c_str(), WiFi.localIP().toString().c_str());
+  } else if (!connected && wasConnected) {
+    Serial.println("WiFi lost, reconnecting...");
+  }
+  wasConnected = connected;
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  Serial.println("\n--- Scrap scanner starting ---");
 
+#if USE_CAMERA
   if (!psramFound()) Serial.println("WARNING: PSRAM not found - set PSRAM to OPI in Tools menu");
   if (!initCamera()) { Serial.println("Camera init failed"); while (true) delay(1000); }
+#endif
 
   scale.begin(HX711_DT_PIN, HX711_SCK_PIN);
+  while (!scale.wait_ready_timeout(1000)) {
+    Serial.printf("HX711 not found - check wiring (DT -> GPIO %d, SCK -> GPIO %d, VCC, GND)\n",
+                  HX711_DT_PIN, HX711_SCK_PIN);
+  }
   scale.set_scale(SCALE_FACTOR);
+  Serial.println("Taring... keep the scale empty");
   scale.tare(20);
+  Serial.println("Scale ready (zeroed)");
 
+#if USE_CAMERA
   ESP32PWM::allocateTimer(1);  // camera already uses LEDC timer 0
   flap.attach(SERVO_PIN);
   moveFlap(MANUAL_AREA);
+#endif
 
   WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.printf("\nConnected, IP %s\n", WiFi.localIP().toString().c_str());
+  Serial.printf("Connecting to WiFi \"%s\"", WIFI_SSID);
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_WAIT_MS) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("No WiFi yet - the scale works offline and keeps trying to connect");
+  }
+  reportWifi();
 
-  sendBackground();  // board must be empty at power-on
+  web.on("/weight", HTTP_GET, handleWeightRequest);
+  web.begin();
+
+#if USE_CAMERA
+  if (WiFi.status() == WL_CONNECTED) sendBackground();  // board must be empty at power-on
+#endif
+  Serial.println("Commands: t = tare, c = calibrate, p = pause printout");
 }
 
 void loop() {
   handleSerial();
+  web.handleClient();
+  reportWifi();
+
   float grams;
   bool stable = readStableWeight(grams);
+  if (printWeight) Serial.printf("Weight: %8.1f g  %s\n", grams, stable ? "(settled)" : "(settling)");
 
+#if USE_CAMERA
   if (state == WAIT_FOR_PIECE && stable && grams > PRESENT_G) {
     scanPiece(grams);
     state = WAIT_FOR_REMOVAL;
@@ -225,4 +308,5 @@ void loop() {
     Serial.println("Scale empty, ready for next piece");
     state = WAIT_FOR_PIECE;
   }
+#endif
 }

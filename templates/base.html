@@ -1,14 +1,25 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Re:Source{% endblock %}</title>
+<script>try { const t = JSON.parse(localStorage.getItem('rs_theme')); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
-<body>
+<body{% block body_attrs %}{% endblock %}>
 <header><div class="wrap">
-  <div class="brand"><div class="logo">♻</div><div><b>Re:Source</b><small>THE SMART MATERIAL LIBRARY</small></div></div>
-  <nav>{% for ep,label in [('dashboard','Dashboard'),('items','Library'),('ai_matcher','AI Matcher'),('scan','Checkout'),('guide','Guide')] %}
+  <div class="top">
+    <a class="logo" href="{{ url_for('dashboard') }}"><div class="logo-mark">R:</div><div>Re:Source<small>Digital Material Library</small></div></a>
+    <div class="spacer"></div>
+    <button type="button" class="pill" id="lvlBtn" aria-label="Your eco level"><span class="lv" id="lvNum">1</span><span class="txt"><span id="lvName">Scrap Rookie</span> · <span id="lvPts">0</span> pts<span class="pbar"><i id="lvBar" style="width:0"></i></span></span></button>
+    <button type="button" class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </div>
+  <nav class="tabs">{% for ep,label in [('dashboard','🏠 Dashboard'),('items','📚 Library'),('new','📥 Register'),('ai_matcher','✨ AI Matcher'),('scan','📷 Checkout'),('play','🎮 Sort game'),('guide','📖 Guide')] %}
     <a href="{{ url_for(ep) }}" class="{{ 'on' if request.endpoint==ep }}">{{ label }}</a>{% endfor %}</nav>
-  <h1>Give materials a second life.</h1><p>Discover, reuse and share materials from your school scrapyard.</p>
 </div></header>
 <main><div class="wrap">{% block content %}{% endblock %}</div></main>
-<footer><div class="wrap"><b>Re:Source</b><br><small>Reuse more. Waste less. Create better.<br>A smarter, more sustainable school scrapyard.</small></div></footer>
+<footer><div class="wrap"><b>Re:Source</b> · Reuse more. Waste less. Create better.</div></footer>
+<dialog id="rsDlg"><div id="rsDlgInner"></div></dialog>
+<div class="toast" id="rsToast" role="status"></div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% block scripts %}{% endblock %}
 </body></html>

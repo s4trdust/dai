@@ -23,7 +23,36 @@ function fill(r) {
   setVerify(check, pct);
   showDetails();
   sizeBox();
+  lastPct = pct;
+  const no = DISPOSAL[r.disposal];                  // not suitable for reuse: say where it goes instead
+  if (no) {
+    $('reject').className = 'alert ' + no[0];
+    $('reject-title').textContent = no[1];
+    $('reject-text').textContent = no[2];
+    $('reject').hidden = false;
+    $('details').hidden = true;
+    status(`AI thinks: ${r.name}. This can't be stored for reuse.`, true);
+  }
 }
+
+// Items the scrapyard can't keep (classify.py DISPOSAL): [alert style, title, where to take it]
+const DISPOSAL = {
+  battery: ['stop', '🔋 Battery / e-waste detected', 'Do not put this in scrap storage. Take it to the e-waste bin opposite Insta Chef.'],
+  e_waste: ['stop', '🔥 Damaged electronics: e-waste', "This looks end-of-life, so it can't go into the reuse library. Take it to the school's e-waste collection point."],
+  not_accepted: ['warn', '🚫 Not accepted at the scrapyard', 'Furniture, stationery, plushies and textbooks have their own collection points. Please take it there instead.'],
+  hazard: ['stop', '⚠️ Do not process', "This item looks damaged, leaking or contaminated. Don't leave it here: find the staff member in charge of the scrapyard."],
+};
+let lastPct = 0;
+function hideReject() { $('reject').hidden = true; }
+$('reject-done').onclick = () => {                   // start again with the next item
+  hideReject(); $('photo').value = ''; $('preview').hidden = $('preview-note').hidden = true;
+  status('Take it off the scale, then choose a photo of the next item.');
+  scrollTo({ top: 0, behavior: 'smooth' });
+};
+$('reject-override').onclick = () => {               // the person knows better: register, but check it
+  hideReject(); showDetails(); setVerify(true, lastPct);
+  status('Check every detail below, tick the box, then press Register.', true);
+};
 
 // Small scraps are only counted, so their size is not asked for (or saved).
 function sizeBox() { $('size-box').hidden = field('category').value === 'small'; }
@@ -46,11 +75,23 @@ function showPreview(file) {
   $('preview').src = previewUrl; $('preview').hidden = $('preview-note').hidden = false;
 }
 
+// The weight is required, and the AI does better with it, so the AI waits for it.
+const hasWeight = () => +$('weight').value > 0;
+let waitingForWeight = false;                      // photo chosen before the weight
+
 $('photo').onchange = () => {                      // preview, then start the AI straight away
   if (!$('photo').files.length) return;
   showPreview($('photo').files[0]);
-  if (AI_READY) identify();
+  if (!AI_READY) return;
+  if (hasWeight()) return identify();
+  waitingForWeight = true;
+  status('Now weigh the item: press "Get weight from scale" (or type the weight in). The AI starts after that.', true);
 };
+
+function weightReady() {                           // weight just arrived: start the AI if it was waiting
+  if (AI_READY && waitingForWeight && hasWeight() && $('photo').files.length) { waitingForWeight = false; identify(); }
+}
+$('weight').addEventListener('change', weightReady);
 
 // Send the photo (and weight, if filled in) to the AI. Runs when a photo is chosen.
 let identifying = 0;                               // ignore answers for an earlier photo
@@ -61,6 +102,7 @@ async function identify() {
   if ($('weight').value) body.append('weight_g', $('weight').value);
   status('Identifying… (up to about 30 seconds)');
   setVerify(false);                                 // a new photo gets a new answer
+  hideReject();
   try {
     const r = await (await fetch('/api/identify', { method: 'POST', body })).json();
     if (mine !== identifying) return;
@@ -72,7 +114,7 @@ async function identify() {
   }
 }
 
-if (AI_READY) $('manual').onclick = () => { setVerify(false); showDetails(); field('material').focus(); };
+if (AI_READY) $('manual').onclick = () => { setVerify(false); hideReject(); showDetails(); field('material').focus(); };
 
 // ---- scale: read the weight only when the button is pressed ----
 $('weigh').onclick = async () => {
@@ -80,8 +122,10 @@ $('weigh').onclick = async () => {
   try {
     const r = await (await fetch('/api/station/weight')).json();
     if (!r.ok) return status(r.error, true);
+    if (!(r.weight_g > 0)) return status('The scale reads 0 g. Put the item on it, let it settle and press again.', true);
     $('weight').value = r.weight_g;
     status(`Weight from the scale: ${r.weight_g} g.`);
+    weightReady();
   } catch (e) {
     status('Could not reach the server.', true);
   } finally { $('weigh').disabled = false; }

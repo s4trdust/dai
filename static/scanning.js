@@ -32,6 +32,7 @@ async function lookup(code) {
     $('result').textContent = '';
     status(!r.ok ? (r.error || 'Failed.') : r.left ? `Done – took ${r.taken} × ${it.name}, ${r.left} left.`
                                                    : `Done – ${it.name} removed from the library.`, !r.ok);
+    if (r.ok && window.RS) { RS.addPts(15, 'taken'); RS.confetti(); }   // eco points for reusing it
   };
   box.append(h, p);
   if (it.quantity > 1) box.append(qty);

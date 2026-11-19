@@ -1,6 +1,8 @@
-{% extends 'base.html' %}{% block content %}
-<h2>Register a material</h2><p class="sub">Large and unique items get their own QR label. Small scraps are just added to the count for their category.</p>
-{% if deposited %}<div class="card" style="background:var(--tint)" role="status">✅ <b>Deposited.</b>
+{% extends 'base.html' %}
+{% block body_attrs %}{% if deposited %} data-award="10:donated"{% endif %}{% endblock %}
+{% block content %}
+<div class="section-head"><div><h2>📥 Register a material</h2><p class="muted">Large and unique items get their own QR label. Small scraps are just added to the count for their category.</p></div></div>
+{% if deposited %}<div class="alert ok" role="status"><h3>✅ Deposited</h3>
   {{ deposited.added }} × {{ deposited.name }} added. Place {{ 'it' if deposited.added == 1 else 'them' }} in <b>📍 {{ deposited.location }}</b>.
   <div class="meta">{{ deposited.total }} now in stock · <a href="{{ url_for('item', item_id=deposited.id) }}">view</a></div>
   {% if deposited.flap_error %}<p class="note err">⚠️ {{ deposited.flap_error }}</p>
@@ -8,17 +10,22 @@
   {% else %}<div class="meta">✋ No box for this one: the funnel did not move, so take it off the scale by hand.</div>{% endif %}</div>{% endif %}
 <form method="post" class="card" enctype="multipart/form-data" id="register">
 <div id="ai-step">
-  <label for="weight">Weight in grams <span class="note">(optional{% if ai_ready %}, helps the AI tell materials apart{% endif %})</span></label>
-  <div class="row"><input id="weight" name="weight_g" type="number" min="0" step="0.1" placeholder="e.g. 42">
+  {% if error %}<div class="alert stop" role="alert"><h3>⚠️ Not registered</h3><p style="margin:0">{{ error }}</p></div>{% endif %}
+  <label for="weight">Weight in grams <span class="note">(required{% if ai_ready %}, helps the AI tell materials apart{% endif %})</span></label>
+  <div class="row"><input id="weight" name="weight_g" type="number" min="0.1" step="0.1" placeholder="e.g. 42" required>
     <button type="button" class="btn" id="weigh" style="flex:0 0 auto">⚖️ Get weight from scale</button></div>
   <p class="note">Put the item on the station's scale, let it settle, then press the button. The station does not sort items while this page is open.</p>
   <label for="photo">📷 Photo of the item</label>
+  <div class="alert warn" style="margin:0 0 8px;font-size:14px">📐 Place the item on the printed board so it does <b>not cover any of the 4 square patterns in the corners</b>, and keep all 4 in the photo. They help work out the item's size.</div>
   <input id="photo" name="photo" type="file" accept="image/*">
   <img id="preview" alt="Photo of the item" hidden style="display:block;max-width:100%;max-height:360px;border-radius:12px;margin:8px 0">
   <p id="preview-note" class="note" hidden>This photo is saved on the item's page (large and unique items).</p>
   {% if ai_ready %}<p class="note">The AI identifies the item as soon as you choose a photo.</p>
   {% else %}<p class="note">AI identification is off (no GEMINI_API_KEY set), so fill in the details by hand.</p>{% endif %}
   <p id="ai-status" class="note" role="status"></p>
+  <div id="reject" class="alert stop" hidden role="alert"><h3 id="reject-title"></h3><p id="reject-text" style="margin:0 0 10px"></p>
+    <div class="row" style="justify-content:flex-start"><button type="button" class="btn primary" id="reject-done" style="flex:none">OK, scan another item</button>
+      <button type="button" class="btn small" id="reject-override" style="flex:none">The AI is wrong, register it anyway</button></div></div>
   {% if ai_ready %}<p><button type="button" class="btn small" id="manual">Fill in by hand instead</button></p>{% endif %}
 </div>
 <div id="details"{% if ai_ready %} hidden{% endif %}>
@@ -31,8 +38,8 @@
 <label>Suggested uses</label><textarea name="use" placeholder="Used for…"></textarea>
 <label>Days before "to be recycled" <span class="note">(blank = default for the material)</span></label><input name="days" type="number" min="1">
 {% for f in ['colour', 'condition', 'transparency', 'description'] %}<input type="hidden" name="{{ f }}">{% endfor %}
-<div id="verify" class="card" hidden style="background:#fff1cc;border-color:#e8c766;margin-top:12px">
-  <label style="display:flex;gap:10px;align-items:flex-start;margin:0"><input type="checkbox" id="verify-ok" style="width:auto;margin-top:4px">
+<div id="verify" class="alert warn" hidden>
+  <label style="display:flex;gap:10px;align-items:flex-start;margin:0;text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink)"><input type="checkbox" id="verify-ok" style="width:auto;margin-top:4px">
   <span>⚠️ The AI is only <b id="verify-pct"></b> sure. I've checked the details above and they are right.</span></label></div>
 <p><button class="primary">Register</button></p></div></form>
 <script>const AI_READY = {{ 'true' if ai_ready else 'false' }};</script>

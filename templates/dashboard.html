@@ -1,13 +1,17 @@
 {% extends 'base.html' %}{% block content %}
-<h2>Dashboard</h2><p class="sub">Scrapyard overview.</p>
-<div class="stats"><div class="stat"><b>{{ stats.total }}</b><span>Items tracked</span></div>
-<div class="stat"><b>{{ stats.small }}</b><span>Small</span></div><div class="stat"><b>{{ stats.large }}</b><span>Large</span></div>
-<div class="stat"><b>{{ stats.unique }}</b><span>Unique</span></div></div>
-<p><a class="btn primary" href="{{ url_for('new') }}">+ Register material</a></p>
-<h2>To be recycled <span class="meta">(staff alert)</span></h2>
-{% for i in recycle %}<div class="card"><b>{{ i.name }}</b> · {{ i.material }} · {{ i.location }}
-  <form method="post" action="{{ url_for('recycle', item_id=i.id) }}" style="margin-top:8px"><button>Mark as recycled</button></form></div>
+<div class="section-head"><div><h2>Dashboard</h2><p class="muted">Scrapyard overview.</p></div>
+  <a class="btn primary" href="{{ url_for('new') }}">📥 Register material</a></div>
+<div class="stats">
+  <div class="stat"><em>🧰</em><b>{{ stats.total }}</b><span>Items tracked</span></div>
+  <div class="stat"><em>🗃️</em><b>{{ stats.small }}</b><span>Small</span></div>
+  <div class="stat"><em>📐</em><b>{{ stats.large }}</b><span>Large</span></div>
+  <div class="stat"><em>⭐</em><b>{{ stats.unique }}</b><span>Unique</span></div></div>
+
+<div class="section-head"><div><h2>♻️ To be recycled</h2><p class="muted">Staff alert: these are past their shelf life.</p></div></div>
+{% for i in recycle %}<div class="card row"><div style="flex:3"><b>{{ i.emoji }} {{ i.name }}</b><div class="meta">{{ i.material }} · 📍 {{ i.location or 'No location set' }}</div></div>
+  <form method="post" action="{{ url_for('recycle', item_id=i.id) }}" style="flex:none"><button class="danger">Mark as recycled</button></form></div>
 {% else %}<p class="meta">Nothing has expired.</p>{% endfor %}
-<h2 style="margin-top:20px">Expiring soon</h2>
-{% for i in soon %}{% include '_card.html' %}{% else %}<p class="meta">Nothing expiring in the next 7 days.</p>{% endfor %}
+
+<div class="section-head"><div><h2>⏳ Expiring soon</h2><p class="muted">Rescue these before they're recycled.</p></div></div>
+<div class="items">{% for i in soon %}{% include '_card.html' %}{% else %}<p class="meta">Nothing expiring in the next 7 days.</p>{% endfor %}</div>
 {% endblock %}

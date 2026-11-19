@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% block title %}Sort game · Re:Source{% endblock %}{% block content %}
+<div class="section-head"><div><h2>🎮 Where does it go?</h2><p class="muted">Sort 10 objects the way the deposit station would. +5 points for each right answer.</p></div></div>
+<div class="game" id="game"></div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='game.js') }}"></script>{% endblock %}

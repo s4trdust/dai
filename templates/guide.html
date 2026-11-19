@@ -1,17 +1,40 @@
 {% extends 'base.html' %}{% block content %}
-<h2>How Re:Source works</h2>
-<ol class="steps">
-<li><b>01</b><strong>Deposit</strong> – Place your scrap on the Physical AI scanning station.</li>
-<li><b>02</b><strong>Identify</strong> – AI identifies the material and evaluates its condition.</li>
-<li><b>03</b><strong>Store</strong> – Follow automatic sorting or manual placement instructions.</li>
-<li><b>04</b><strong>Discover</strong> – Search the Digital Material Library for materials.</li>
-<li><b>05</b><strong>Reuse</strong> – Check out what you take: scan the QR label on large and unique items, or pick small scraps from the list.</li></ol>
-<div class="card" style="background:var(--tint)"><b>Scrapyard etiquette</b><ul>
-<li>Only deposit accepted materials.</li><li>Return unused materials to their designated locations.</li>
-<li>Check out everything you take on the Checkout page.</li><li>Keep storage areas clean and organised.</li>
-<li>Ask staff for help with uncertain or unsafe items.</li></ul></div>
-<div class="card"><b>Not accepted</b><ul><li>Batteries, power banks and damaged electronics: take to the e-waste bin.</li>
-<li>Furniture, stationery, plushies, textbooks: take to the nearest collection point.</li>
-<li>Damaged, leaking or contaminated items: stop and ask staff.</li>
-<li>Unsure what it is? Place it in the manual-check area.</li></ul></div>
+<div class="section-head"><div><h2>📖 How Re:Source works</h2><p class="muted">Small scrap stays easy to drop and grab. Bigger, fragile and unique items get tracked.</p></div></div>
+<div class="card" style="overflow-x:auto">
+  <table class="cat">
+    <thead><tr><th>Category</th><th>Examples</th><th>Deposit</th><th>Taking it</th></tr></thead>
+    <tbody>
+      <tr><td><span class="chip small">Small</span></td><td>Acrylic offcuts, cardboard, wires, PLA up to 10 × 10 cm (wire of any length)</td><td>The funnel turns to the right storage section (1-4); only the count is kept</td><td>Pick it from the list on the Checkout page</td></tr>
+      <tr><td><span class="chip small">Small, no section</span></td><td>Wood scraps and other small pieces</td><td>Counted in the manual area, or the location you type in</td><td>Pick it from the list on the Checkout page</td></tr>
+      <tr><td><span class="chip large">Large</span></td><td>Big cardboard, plywood, acrylic sheets, pipes</td><td>Place it where the screen says and stick on the printed QR label</td><td>Scan the QR before taking it</td></tr>
+      <tr><td><span class="chip unique">Unique</span></td><td>Arduino, sensors, motors, other components</td><td>Place it where the screen says and stick on the QR label</td><td>Scan the QR before taking it</td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="guide">
+  <div class="card"><h3>📥 Depositing</h3><ol>
+    <li>Open <a href="{{ url_for('new') }}">Register</a> and put the item on the station's scale.</li>
+    <li>Press "Get weight from scale", then take or choose a photo: the AI fills in the details.</li>
+    <li>Check the details. If the AI is under 95% sure, tick the box to confirm them.</li>
+    <li>Small pieces: the funnel turns to their section. Anything else: follow the placement shown and stick on the label.</li></ol></div>
+  <div class="card"><h3>🛒 Taking an item</h3><ol>
+    <li>Search the Library or ask the AI Matcher first: no wasted trip.</li>
+    <li>Large / unique items: scan the QR label on the Checkout page, then confirm.</li>
+    <li>Small scraps: pick them from the list on the Checkout page.</li></ol></div>
+  <div class="card"><h3>🤝 Etiquette</h3><ul>
+    <li>Leave the shelf tidier than you found it.</li>
+    <li>Don't peel labels off items you're not taking.</li>
+    <li>Return unused pieces through the deposit station, not the floor.</li>
+    <li>Ask staff for help with uncertain or unsafe items.</li></ul></div>
+  <div class="card"><h3>🚫 Not accepted here</h3><ul>
+    <li><b>Batteries &amp; power banks</b>: e-waste bin opposite Insta Chef.</li>
+    <li><b>Damaged electronics</b>: school e-waste collection point.</li>
+    <li><b>Furniture, stationery, plushies, textbooks</b>: their own collection points.</li>
+    <li><b>Leaking / contaminated items</b>: stop and find the staff in charge.</li>
+    <li><b>Not sure?</b> The manual area.</li></ul>
+    <p class="note">The AI warns you on the Register page if it spots one of these.</p></div>
+  <div class="card"><h3>⏳ Recycling timer</h3><p class="muted" style="margin:0">Items unclaimed past their shelf life are marked "to be recycled" and the scrapyard team is alerted. Shelf life:
+    {% for m, d in shelf_life %}{{ m|upper if m in ('pla', 'mdf') else m }} {{ d }} days{{ ', ' if not loop.last else '.' }}{% endfor %}</p></div>
+  <div class="card"><h3>🌱 Points &amp; levels</h3><p class="muted" style="margin:0">Deposit (+10 small, +25 labelled), take an item (+15) and win at the <a href="{{ url_for('play') }}">Sort game</a> (+5 per answer) to level up from Scrap Rookie to Re:Source Legend. Points are saved in your browser.</p></div>
+</div>
 {% endblock %}

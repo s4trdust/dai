@@ -4,10 +4,14 @@ import json
 import httpx
 from google.genai import errors, types
 
+from . import config
+
 MATERIALS = [
     "acrylic", "pla", "other_plastic", "cardboard", "paper", "wood", "mdf",
     "wire", "metal", "electronics", "fabric", "foam", "glass", "unknown",
 ]
+# "reuse" = can be stored; anything else is rejected and the person is told where to take it
+DISPOSAL = ["reuse", "battery", "e_waste", "not_accepted", "hazard"]
 # how each material is written in the library (matches the website's EXPIRY_DAYS keys)
 MATERIAL_LABELS = {"pla": "PLA", "mdf": "MDF", "other_plastic": "Plastic"}
 
@@ -30,10 +34,12 @@ SCHEMA = {
         "width_cm": {"type": "number", "description": "the measured width if given, else your estimate"},
         "is_component": {"type": "boolean", "description": "true for a distinct reusable object (e.g. "
                          "Arduino, motor, sensor, tool); false for raw material or offcuts"},
+        "disposal": {"type": "string", "enum": DISPOSAL,
+                     "description": "'reuse' if the scrapyard can store it; otherwise why it must go elsewhere"},
     },
     "required": ["name", "material", "material_confidence", "colour", "condition", "transparency",
                  "estimated_thickness_cm", "suggested_use", "description", "length_cm", "width_cm",
-                 "is_component"],
+                 "is_component", "disposal"],
 }
 
 SYSTEM_PROMPT = """You inspect pieces of scrap deposited at a school scrapyard.
@@ -57,7 +63,14 @@ lines, typical printed shapes). When the evidence does not settle the material, 
 the most likely option and lower material_confidence, or answer "unknown". An honest \
 low confidence is far more useful than a confident wrong answer, because uncertain \
 pieces are checked by a person. If grid lines are visible through the piece it is \
-transparent or translucent."""
+transparent or translucent.
+
+Set disposal to "reuse" for anything the scrapyard can store for students to reuse. \
+Otherwise: "battery" for batteries, power banks or devices with a built-in battery; \
+"e_waste" for burnt, broken or clearly dead electronics; "not_accepted" for furniture, \
+stationery, plushies, textbooks and similar everyday items; "hazard" for anything \
+leaking, contaminated, sharp-edged or dangerously damaged. Working electronics and \
+ordinary offcuts are "reuse"."""
 
 
 class ClassificationError(Exception):
@@ -75,7 +88,11 @@ def classify(client, models: list[str], photo_jpeg: bytes, annotated_jpeg: bytes
         raise ClassificationError("Gemini not configured (set GEMINI_API_KEY)")
     facts = f"Weight: {weight_g:.1f} g." if weight_g is not None else "Weight: not weighed."
     if hand_photo:
-        facts += " This is a hand-held phone photo, not the measuring board: estimate the size."
+        facts += (" This is a hand-held phone photo, so estimate the size. If the printed board is in the "
+                  f"photo, use it as a ruler: its four corner markers are {config.MARKER_SPAN_X_CM:g} cm apart "
+                  f"across and {config.MARKER_SPAN_Y_CM:g} cm apart lengthwise (centre to centre), and each "
+                  f"marker is {config.MARKER_SIZE_CM:g} cm square. Measure the item itself, not the board: "
+                  "if it covers markers or sticks out past the board's edges, it is bigger than that frame.")
     elif length_cm is None:
         facts += " Dimensions could not be measured automatically."
     else:
@@ -119,4 +136,6 @@ def classify(client, models: list[str], photo_jpeg: bytes, annotated_jpeg: bytes
     except json.JSONDecodeError as e:
         raise ClassificationError("Gemini returned invalid JSON") from e
     result["material_confidence"] = min(max(float(result["material_confidence"]), 0.0), 1.0)
+    if result.get("disposal") not in DISPOSAL:
+        result["disposal"] = "reuse"
     return result

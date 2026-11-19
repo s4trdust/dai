@@ -1,8 +1,31 @@
 {% extends 'base.html' %}{% block content %}
-<h2>What are you building?</h2><p class="sub">Describe your project and Re:Source AI will help you find suitable existing materials.</p>
-<form method="post"><label for="t">Describe your project requirements</label>
+<div class="section-head"><div><h2>✨ What are you building?</h2><p class="muted">Describe your project and Re:Source AI will help you find suitable existing materials.</p></div></div>
+<form method="post" class="card" id="match-form"><label for="t">Describe your project requirements</label>
 <textarea id="t" name="text" required placeholder="e.g. I am building a miniature bridge and need lightweight, sturdy materials…">{{ text }}</textarea>
-<p><button class="primary">✨ Find matching materials</button></p></form>
-{% if reply %}<div class="reply">{{ reply }}</div>
-{% if not ai %}<p class="note">AI is unavailable (set GEMINI_API_KEY), so this is a simple keyword match.</p>{% endif %}{% endif %}
+<p style="margin-bottom:0"><button class="primary" id="match-btn">✨ Find matching materials</button></p></form>
+
+<div id="thinking" class="card thinking" hidden role="status"><span class="dots"><span></span><span></span><span></span></span>
+  <span><b id="think-text">Reading your idea…</b><br><span class="note">This can take up to about 30 seconds.</span></span></div>
+
+<div id="result">
+{% if error %}<div class="alert {{ 'warn' if reply else 'stop' }}" role="alert"><h3>⚠️ {{ 'The AI could not answer' if reply else 'Nothing to search for' }}</h3>
+  <p style="margin:0">{{ error }}{% if reply %} Showing a simple keyword match instead, so the results may be less helpful. Try again in a minute.{% endif %}</p></div>{% endif %}
+{% if reply %}<div class="reply">{% if ai %}<span class="chip ok" style="margin-bottom:8px">✨ AI recommendation</span>{% else %}<span class="chip" style="margin-bottom:8px">🔍 Keyword match</span>{% endif %}
+{{ reply|md }}</div>{% endif %}
+</div>
 {% endblock %}
+{% block scripts %}<script>
+// The page reloads with the answer; until then, show that the AI is working.
+const form = document.getElementById('match-form');
+form.addEventListener('submit', () => {
+  if (!form.reportValidity()) return;
+  document.getElementById('match-btn').disabled = true;
+  document.getElementById('result').hidden = true;
+  document.getElementById('thinking').hidden = false;
+  const steps = ['Reading your idea…', 'Checking every shelf and section…', 'Ranking the best fits…'];
+  let k = 0;
+  setInterval(() => { document.getElementById('think-text').textContent = steps[++k % steps.length]; }, 2500);
+});
+// Coming back with the browser's Back button: undo the loading state.
+addEventListener('pageshow', e => { if (e.persisted) location.reload(); });
+</script>{% endblock %}

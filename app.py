@@ -1,6 +1,7 @@
 import json, os, re, sqlite3, threading, time, urllib.request
 import cv2
 from flask import Flask, render_template, request, jsonify, redirect, url_for, abort
+from markupsafe import Markup, escape
 import qrcode
 from database import init_db, DB, DAY
 from station import config as station_config
@@ -21,8 +22,17 @@ GEMINI_MODELS = [GEMINI_MODEL, GEMINI_BACKUP_MODEL]
 
 CATEGORIES = {'small': 'Small', 'large': 'Large', 'unique': 'Unique'}
 # default storage time before an item is flagged "to be recycled" (depends on material)
-EXPIRY_DAYS = {'cardboard': 30, 'paper': 30, 'wood': 60, 'mdf': 60, 'acrylic': 90,
-               'pla': 90, 'plastic': 90, 'metal': 120, 'wire': 120, 'electronics': 180}
+EXPIRY_DAYS = {'cardboard': 30, 'paper': 30, 'foam': 45, 'pla': 60, 'wood': 90, 'mdf': 90,
+               'acrylic': 120, 'plastic': 120, 'wire': 120, 'metal': 180, 'electronics': 365}
+# emoji + colour swatch per material on library cards
+MAT_STYLE = {'cardboard': ('📦', '#b08a5a'), 'paper': ('📄', '#c9b28a'), 'pla': ('🧩', '#8b5cf6'),
+             'wood': ('🪵', '#a0703c'), 'mdf': ('🪵', '#8a6a48'), 'acrylic': ('💎', '#38b2d8'),
+             'plastic': ('🧪', '#94a3b8'), 'metal': ('🔩', '#64748b'), 'electronics': ('🔌', '#22a06b'),
+             'foam': ('☁️', '#f2c14e'), 'wire': ('🧵', '#ef5a3c'), 'fabric': ('🧶', '#d46a9f'),
+             'glass': ('🥛', '#7fb8c9')}
+# Storage-section weight bars on the Library page: PLACEHOLDER numbers until the scale tracks
+# how full each bin is. (kg shown, capacity kg)
+BIN_WEIGHT_PLACEHOLDER = {1: (2.4, 6), 2: (4.1, 5), 3: (0.6, 3), 4: (1.1, 4)}
 SOON = 7 * DAY
 
 app = Flask(__name__)
@@ -46,6 +56,7 @@ def decorate(row):
     d['labelled'] = d['category'] != 'small'   # small scraps are only counted; large/unique get a QR
     # one of the station's storage sections 1-4 (shown separately in the library)
     d['compartment'] = d['category'] == 'small' and bool(re.fullmatch(r'Section \d+', d['location']))
+    d['emoji'], d['swatch'] = MAT_STYLE.get(d['material'].lower(), ('🧺', 'var(--line)'))
     return d
 
 
@@ -156,7 +167,17 @@ def items():
     q = request.args.get('q', '').strip()
     category = request.args.get('category', 'all')
     expiring = request.args.get('expiring') == '1'
-    return render_template('items.html', items=query_items(q, category, expiring),
+    # the four storage sections are always shown (unfiltered), with their piece count
+    by_section = {i['location']: i for i in query_items() if i['compartment']}
+    bins = []
+    for n, s in station_config.SECTIONS.items():
+        kg, cap = BIN_WEIGHT_PLACEHOLDER.get(n, (0, 1))
+        bins.append(dict(number=n, name=s['name'], item=by_section.get(f'Section {n}'),
+                         emoji=MAT_STYLE.get(s['material'].lower(), ('🧺', ''))[0],
+                         swatch=MAT_STYLE.get(s['material'].lower(), ('', 'var(--brand)'))[1],
+                         kg=kg, pct=min(100, round(kg / cap * 100))))
+    others = [i for i in query_items(q, category, expiring) if not i['compartment']]
+    return render_template('items.html', bins=bins, items=others,
                            q=q, category=category, expiring=expiring, categories=CATEGORIES)
 
 
@@ -178,6 +199,11 @@ def new():
     small scraps are only added to the count for their category."""
     if request.method == 'POST':
         f = request.form
+        weight = f.get('weight_g', type=float)
+        if weight is None or weight <= 0:                 # weight is compulsory
+            return render_template('new.html', categories=CATEGORIES, defaults=EXPIRY_DAYS, ai_ready=client is not None,
+                                   error='Weigh the item first: put it on the scale and press "Get weight from scale", '
+                                         'or type the weight in.'), 400
         material = f.get('material', '').strip()
         quantity = max(1, int(f.get('quantity') or 1))
         jpeg = photo_jpeg(request.files.get('photo'))     # uploaded on the Register page
@@ -205,7 +231,7 @@ def new():
                          f.get('weight_g', type=float), f.get('colour') or None, f.get('condition') or None,
                          f.get('transparency') or None, f.get('description') or None, photo))
         make_qr(item_id)
-        return redirect(url_for('item', item_id=item_id))
+        return redirect(url_for('item', item_id=item_id, pts=25, kind='donated'))   # eco points
     return render_template('new.html', categories=CATEGORIES, defaults=EXPIRY_DAYS, ai_ready=client is not None)
 
 
@@ -256,6 +282,7 @@ def suggestion(ai, length, width, measured):
                 use=ai['suggested_use'], location=f'Section {section}' if section and category == 'small' else '',
                 confidence=ai['material_confidence'], unsure=ai['material_confidence'] < station_config.MIN_CONFIDENCE,
                 verify=ai['material_confidence'] < station_config.VERIFY_CONFIDENCE,
+                disposal=ai.get('disposal', 'reuse'),
                 colour=ai['colour'], condition=ai['condition'], transparency=ai['transparency'],
                 description=ai['description'])
 
@@ -330,7 +357,13 @@ def station_release():
 
 @app.route('/guide')
 def guide():
-    return render_template('guide.html')
+    return render_template('guide.html', shelf_life=sorted(EXPIRY_DAYS.items(), key=lambda kv: kv[1]))
+
+
+@app.route('/play')
+def play():
+    """'Where does it go?' sort game (runs in the browser, see static/game.js)."""
+    return render_template('play.html')
 
 
 @app.route('/scan')
@@ -349,7 +382,7 @@ def take(item_id):
         n = 1
     result = take_item(item_id, n)
     msg = f'Checked out {result[1]} × {result[0]} ({result[2]} left).' if result else 'Item not found.'
-    return redirect(url_for('scan', taken=msg))
+    return redirect(url_for('scan', taken=msg, **({'pts': 15, 'kind': 'taken'} if result else {})))
 
 
 # ---------- QR / inventory API ----------
@@ -440,6 +473,9 @@ def process_piece(jpeg, weight_g):
     try:
         ai = classify(client, GEMINI_MODELS, jpeg, annotated, weight_g, size.get('length_cm'),
                       size.get('width_cm'), size.get('area_cm2'))
+        if ai.get('disposal', 'reuse') != 'reuse':      # battery, e-waste, hazard...: never stored
+            return dict(ok=True, section=station_config.MANUAL_AREA, item_id=0, quantity=0,
+                        name=f"not for reuse ({ai['disposal'].replace('_', ' ')})")
         if ai['material'] in station_config.ALWAYS_SMALL and 'too large for the sections' in reasons:
             reasons.remove('too large for the sections')      # e.g. wire: coils up to fit
             oversize = False
@@ -502,6 +538,40 @@ PROMPT = ('You are Re:Source, a school scrapyard assistant. According to the pro
           '\n\nPROJECT SPECIFICATIONS:\n{text}')
 
 
+@app.template_filter('md')
+def simple_markdown(text):
+    """The AI's Markdown -> safe HTML: **bold**, *italic*, `code`, headings, bullet and numbered
+    lists. Everything is HTML-escaped first, so the AI's text can never inject tags."""
+    def inline(s):
+        s = str(escape(s))
+        s = re.sub(r'\*\*(.+?)\*\*|__(.+?)__', lambda m: f'<b>{m.group(1) or m.group(2)}</b>', s)
+        s = re.sub(r'(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?!\w)', r'<i>\1</i>', s)
+        return re.sub(r'`(.+?)`', r'<code>\1</code>', s)
+
+    html, open_list = [], None
+    for line in (text or '').splitlines():
+        if re.fullmatch(r'\s*([-*_])\1{2,}\s*', line):            # --- divider
+            item, tag = None, 'hr'
+        else:
+            item = re.match(r'\s*[-*•]\s+(.*)', line) or re.match(r'\s*\d+[.)]\s+(.*)', line)
+            tag = ('ul' if re.match(r'\s*[-*•]\s', line) else 'ol') if item else None
+        if open_list and tag != open_list:
+            html.append(f'</{open_list}>'); open_list = None
+        if item:
+            if not open_list:
+                html.append(f'<{tag}>'); open_list = tag
+            html.append(f'<li>{inline(item.group(1))}</li>')
+        elif tag == 'hr':
+            html.append('<hr>')
+        elif heading := re.match(r'\s*#{1,6}\s+(.*)', line):
+            html.append(f'<h3>{inline(heading.group(1))}</h3>')
+        elif line.strip():
+            html.append(f'<p>{inline(line)}</p>')
+    if open_list:
+        html.append(f'</{open_list}>')
+    return Markup('\n'.join(html))
+
+
 def keyword_match(text, items):
     words = set(re.findall(r'[a-z]{3,}', text.lower()))
     scored = []
@@ -517,27 +587,38 @@ def keyword_match(text, items):
 
 
 def match(text):
+    """Returns (reply, used_ai, error). error says why the AI was not used (None if it was)."""
     items = [i for i in query_items() if i['status'] != 'recycle']
-    if client:
-        inv = '\n'.join(f"{i['id']} | {i['name']} | {i['category']} | {i['material']} | {i['size']} | "
-                        f"{i['quantity']} | {i['location']} | {i['use']}" for i in items) or '(empty)'
-        for model in GEMINI_MODELS:           # backup model when the main one is busy
-            try:
-                return client.models.generate_content(model=model,
-                                                      contents=PROMPT.format(inv=inv, text=text)).text, True
-            except Exception as ex:
-                print(f'Gemini error ({model}):', ex)
-    return keyword_match(text, items), False
+    if not client:
+        return keyword_match(text, items), False, 'AI is off because no GEMINI_API_KEY is set.'
+    inv = '\n'.join(f"{i['id']} | {i['name']} | {i['category']} | {i['material']} | {i['size']} | "
+                    f"{i['quantity']} | {i['location']} | {i['use']}" for i in items) or '(empty)'
+    error = 'Gemini did not answer.'
+    for model in GEMINI_MODELS:               # backup model when the main one is busy
+        try:
+            reply = client.models.generate_content(model=model, contents=PROMPT.format(inv=inv, text=text)).text
+            if reply:
+                return reply, True, None
+            error = 'Gemini returned an empty answer (it may have been blocked).'
+        except Exception as ex:
+            print(f'Gemini error ({model}):', ex)
+            code = getattr(ex, 'code', None)
+            error = ('Gemini is busy or over its free limit right now.' if code in (429, 503)
+                     else 'Could not reach Gemini. Check the internet connection.' if code is None
+                     else f'Gemini returned an error ({code}).')
+    return keyword_match(text, items), False, error
 
 
 @app.route('/ai-matcher', methods=['GET', 'POST'])
 def ai_matcher():
-    text, reply, ai = '', None, True
+    text, reply, ai, error = '', None, True, None
     if request.method == 'POST':
         text = request.form.get('text', '').strip()
         if text:
-            reply, ai = match(text)
-    return render_template('ai.html', text=text, reply=reply, ai=ai)
+            reply, ai, error = match(text)
+        else:
+            error = 'Describe what you are building first.'
+    return render_template('ai.html', text=text, reply=reply, ai=ai, error=error)
 
 
 if __name__ == '__main__':

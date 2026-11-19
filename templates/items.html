@@ -1,18 +1,38 @@
 {% extends 'base.html' %}{% block content %}
-<h2>Material Library</h2><p class="sub">Find available materials for your next project.</p>
-<form class="search" method="get"><input name="q" value="{{ q }}" placeholder="Search acrylic, wood, electronics…">
+<div class="section-head"><div><h2>🗃️ Storage sections</h2>
+  <p class="muted">Small pieces sorted by the scanning station into sections 1-4. Only the count is kept, so just take what you need.</p></div></div>
+<div class="bins">{% for b in bins %}
+  <a class="card bin {{ 'low' if b.pct < 15 }}" {% if b.item %}href="{{ url_for('item', item_id=b.item.id) }}"{% endif %}>
+    <div class="row" style="justify-content:space-between"><b style="font-size:14px;flex:none">{{ b.emoji }} {{ b.name }}</b><span class="chip" style="flex:none">Section {{ b.number }}</span></div>
+    <div class="count">{{ b.item.quantity if b.item else 0 }} <span class="meta">piece{{ '' if b.item and b.item.quantity == 1 else 's' }}</span></div>
+    <div class="bar"><i style="width:{{ b.pct }}%;background:{{ b.swatch }}"></i></div>
+    <span class="meta">≈ {{ '%.1f'|format(b.kg) }} kg · {{ 'nearly full' if b.pct > 85 else 'running low' if b.pct < 15 else 'stocked' }}</span>
+  </a>{% endfor %}</div>
+
+<div class="section-head"><div><h2>Other materials</h2><p class="muted">Large and unique items carry a QR label: scan it before you take one.</p></div>
+  {% if items %}<button type="button" class="btn fun" id="luckyBtn">🎲 Surprise me</button>{% endif %}</div>
+<form class="search" method="get"><input name="q" value="{{ q }}" placeholder="Search acrylic, wood, electronics…" aria-label="Search">
 <input type="hidden" name="category" value="{{ category }}">{% if expiring %}<input type="hidden" name="expiring" value="1">{% endif %}<button class="primary">Search</button></form>
-<div class="meta" style="margin-top:12px">FILTER BY CATEGORY</div>
 <div class="chips">
   <a href="{{ url_for('items', q=q) }}" class="{{ 'on' if category=='all' }}">All</a>
   {% for k,v in categories.items() %}<a href="{{ url_for('items', q=q, category=k) }}" class="{{ 'on' if category==k }}">{{ v }}</a>{% endfor %}
-  <a href="{{ url_for('items', q=q, category=category, expiring=1) }}" class="{{ 'on' if expiring }}">Expiring soon</a></div>
-{% set sections = items|selectattr('compartment')|sort(attribute='location')|list %}
-{% set others = items|rejectattr('compartment')|list %}
-{% if sections %}<h3 style="margin:16px 0 4px">🗃️ Storage sections</h3>
-<p class="meta">Small pieces sorted by the scanning station into sections 1-4. Only the count is kept.</p>
-{% for i in sections %}{% include '_card.html' %}{% endfor %}{% endif %}
-<h3 style="margin:16px 0 4px">Other materials</h3>
-<p class="meta"><b>Available materials</b> · {{ others|length }} results</p>
-{% for i in others %}{% include '_card.html' %}{% else %}<p class="meta">No materials match.</p>{% endfor %}
+  <a href="{{ url_for('items', q=q, category=category, expiring=1) }}" class="{{ 'on' if expiring }}">⏳ Expiring soon</a></div>
+<p class="meta">{{ items|length }} item{{ '' if items|length == 1 else 's' }}</p>
+<div class="items" id="items">{% for i in items %}{% include '_card.html' %}{% else %}<div class="card empty">🤷 Nothing matches. Try the <a href="{{ url_for('ai_matcher') }}">AI Matcher</a> to describe what you need.</div>{% endfor %}</div>
 {% endblock %}
+{% block scripts %}<script>
+// "Surprise me": spin through the cards, then open a random one.
+const lucky = document.getElementById('luckyBtn');
+if (lucky) lucky.onclick = () => {
+  const cards = [...document.querySelectorAll('#items .item')];
+  if (!cards.length) return RS.toast('The scrapyard is empty!');
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return location.href = cards[Math.floor(Math.random() * cards.length)].href;
+  let k = 0; const spins = 12 + Math.floor(Math.random() * cards.length);
+  const tick = () => {
+    cards.forEach(c => c.style.outline = '');
+    const c = cards[k % cards.length]; c.style.outline = '3px solid var(--accent)';
+    if (++k < spins) setTimeout(tick, 60 + k * 8); else setTimeout(() => location.href = c.href, 350);
+  };
+  tick();
+};
+</script>{% endblock %}

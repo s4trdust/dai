@@ -1,9 +1,11 @@
-<div class="card">
-  <span class="badge {{ i.status }}">{{ 'To be recycled' if i.status=='recycle' else ('Expiring in %d d'|format(i.days_left) if i.status=='soon' else 'Available') }}</span>
-  <h3>{{ i.name }}</h3><div class="meta">{{ i.material }} · {{ i.category_label }} item</div>
-  <div class="grid">{% if i.size %}<div><small>Quantity / size</small>{{ i.quantity }} units · {{ i.size }}</div>
-  {% else %}<div><small>Count</small>{{ i.quantity }} piece{{ 's' if i.quantity != 1 }}</div>{% endif %}
-  <div><small>Storage location</small>📍 {{ i.location }}</div></div>
-  <div class="meta">Suggested uses: {{ i.use }}</div>
-  <a class="btn block" href="{{ url_for('item', item_id=i.id) }}">View material details →</a>
-</div>
+<a class="card item" href="{{ url_for('item', item_id=i.id) }}">
+  <span class="emo" aria-hidden="true">{{ i.emoji }}</span>
+  <div class="swatch" style="background:{{ i.swatch }}"></div>
+  <div class="row"><span class="chip {{ i.category }}">{{ i.category_label }}</span>
+    {% if i.status == 'recycle' %}<span class="chip warn">To be recycled</span>
+    {% elif i.status == 'soon' %}<span class="chip warn">⏳ {{ i.days_left }}d left</span>
+    {% else %}<span class="chip">{{ i.days_left }}d left</span>{% endif %}</div>
+  <h3>{{ i.name }}</h3>
+  <div class="meta">{{ i.material }}{% if i.size %} · {{ i.size }}{% endif %} · {{ i.quantity }} {{ 'unit' if i.quantity == 1 else 'units' }}{% if not i.size %} (count only){% endif %}</div>
+  <div class="meta">📍 {{ i.location or 'No location set' }}</div>
+</a>
